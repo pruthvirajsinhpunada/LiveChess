@@ -227,14 +227,10 @@ struct PuzzlePanelView: View {
                 }
             }
         case .failed:
-            Button {
-                session.restart()
-            } label: {
-                Label("Try again", systemImage: "arrow.clockwise")
-                    .font(.callout.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
+            // "Try again" was moved to PuzzleHUDView so it sits with the
+            // "Not the puzzle solution" message — keeps all failed-puzzle
+            // feedback in a single window instead of split across both.
+            EmptyView()
         case .solved:
             EmptyView()
         }

@@ -25,7 +25,10 @@ enum BalconyEnvironment: EnvironmentScene {
     /// cluster at Z = 0.73–0.77 m (chair seat is ~0.48 m, chair-back
     /// top is ~0.81 m). Park the board just above the table plane so
     /// it doesn't intersect with the table mesh.
-    private static let tableTopY: Float = 0.79
+    ///
+    /// Raised 0.79 → 0.82: the board was reading as embedded in the
+    /// table surface, so it's lifted clear of the table-top cluster.
+    private static let tableTopY: Float = 0.82
 
     /// World-space offset to nudge the board from the chair+table+chair
     /// assembly center to the actual table-top center. Derived by
@@ -76,11 +79,11 @@ enum BalconyEnvironment: EnvironmentScene {
             let b = table.visualBounds(relativeTo: nil)
             boardPos = SIMD3<Float>(
                 b.center.x + boardCenterOffset.x,
-                tableTopY + 0.006,
+                tableTopY + 0.010,
                 b.center.z + boardCenterOffset.z
             )
         } else {
-            boardPos = SIMD3<Float>(0, tableTopY + 0.006, -0.55)
+            boardPos = SIMD3<Float>(0, tableTopY + 0.010, -0.55)
         }
 
         await addSkydome(into: content)

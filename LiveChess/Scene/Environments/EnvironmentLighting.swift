@@ -61,10 +61,12 @@ enum EnvironmentLighting {
 
     /// Resolves the world-space top of a named entity in the loaded env,
     /// lifted by `lift` to avoid z-fighting the table mesh.
+    /// Lift raised 0.006 → 0.010: 6 mm was too shallow and the board
+    /// surface flickered against the table top at glancing angles.
     static func boardPosition(
         onTableNamed name: String,
         in env: Entity,
-        lift: Float = 0.006
+        lift: Float = 0.010
     ) -> SIMD3<Float>? {
         guard let table = env.findEntity(named: name) else { return nil }
         let bounds = table.visualBounds(relativeTo: nil)

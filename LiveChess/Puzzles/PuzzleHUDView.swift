@@ -84,7 +84,7 @@ struct PuzzleHUDView: View {
                     .foregroundStyle(Chess.Palette.accent)
             }
         case .failed:
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     Image(systemName: "xmark.octagon.fill")
                         .foregroundStyle(Chess.Palette.bronze)
@@ -92,9 +92,23 @@ struct PuzzleHUDView: View {
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(Chess.Palette.bronze)
                 }
-                Text("Tap Try again to restart from the puzzle position.")
+                Text("Restart from the puzzle position to try the line again.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                // "Try again" lives here, next to the failure message, so
+                // all puzzle-failed feedback is in one window. Previously
+                // this instruction was here while the button lived in
+                // PuzzlePanelView (the moves panel) — splitting the two
+                // across windows read as confusing.
+                Button {
+                    session.restart()
+                } label: {
+                    Label("Try again", systemImage: "arrow.clockwise")
+                        .font(.callout.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .padding(.top, 2)
             }
         }
     }

@@ -35,7 +35,11 @@ enum DwarvenHallEnvironment: EnvironmentScene {
         env.transform.rotation = simd_quatf(
             angle: -.pi / 2, axis: SIMD3<Float>(0, 1, 0)
         )
-        env.position = SIMD3<Float>(0, 0.3, 0)
+        // Lowered from y=0.3 → 0.15: the authored table sat too high for
+        // comfortable seated play, so the whole hall is dropped ~15 cm.
+        // The board follows the table down automatically because
+        // `boardPosition` is read off the (now-lower) AntiqueTable top.
+        env.position = SIMD3<Float>(0, 0.15, 0)
 
         EnvironmentLighting.softenEmbeddedLights(in: env)
         content.add(env)
