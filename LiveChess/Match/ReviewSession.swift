@@ -148,6 +148,36 @@ final class ReviewSession: MatchSession {
         }
     }
 
+    /// Review init for a locally-played game (vs Stockfish / pass-and-play).
+    /// The moves were validated when they were played, so we just replay
+    /// them through the rules engine to rebuild the position list. There's
+    /// no Lichess game id (local games aren't on lichess.org) and no cloud
+    /// analysis — local Stockfish supplies classifications on demand.
+    init(localMoves moves: [Move],
+         status: GameStatus,
+         rules: any RulesEngine = ChessKitRulesEngine()) {
+        var positions: [Position] = [.standardStart]
+        for m in moves {
+            do {
+                positions.append(try rules.apply(m, to: positions.last!))
+            } catch {
+                positions.append(positions.last!)
+            }
+        }
+        self.plyMoves = moves
+        self.positionsByPly = positions
+        self.rules = rules
+        self.match = Match(startPosition: .standardStart)
+        self.gameId = ""
+        self.titleLine = "Review · Local game"
+        self.subtitleLine = "\(moves.count) plies"
+        if let w = status.winner {
+            self.resultLine = (w == .white) ? "1 – 0" : "0 – 1"
+        } else {
+            self.resultLine = "½ – ½"
+        }
+    }
+
     // MARK: - MatchSession
 
     /// Always true during review — we want the user to be able to grab

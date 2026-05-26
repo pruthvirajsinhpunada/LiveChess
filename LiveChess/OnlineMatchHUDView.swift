@@ -365,23 +365,53 @@ struct OnlineMatchHUDView: View {
                     .controlSize(.large)
                 }
             } else {
-                // Game over: deep-link to the Lichess analysis board
-                // (opens Safari on visionOS as a separate window) and
-                // a primary "back to lobby" button that disconnects the
-                // session and dismisses the immersive space.
+                // In-app 3-D review of the game we just played, built
+                // straight from the move list. Swaps the active session to
+                // a ReviewSession via the same dismiss→reopen dance the env
+                // switcher uses (pendingReopen keeps it across the rebuild).
+                Button {
+                    let moves = session.match.moves
+                    let status = session.match.status
+                    Task {
+                        await session.disconnect()
+                        appModel.activeSession = .review(
+                            ReviewSession(localMoves: moves, status: status)
+                        )
+                        appModel.pendingReopen = true
+                        appModel.immersiveSpaceState = .inTransition
+                        await dismissImmersiveSpace()
+                        if case .opened = await openImmersiveSpace(
+                            id: appModel.immersiveSpaceID
+                        ) {
+                            // scene rebuilds into the review session
+                        } else {
+                            appModel.immersiveSpaceState = .closed
+                            appModel.pendingReopen = false
+                        }
+                    }
+                } label: {
+                    Label("Analyze Game", systemImage: "chart.line.uptrend.xyaxis")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                // Deeper engine analysis on lichess.org (opens Safari).
                 Button {
                     openURL(session.analysisURL)
                 } label: {
-                    Label("Analyze on Lichess", systemImage: "chart.line.uptrend.xyaxis")
+                    Label("Analyze on Lichess", systemImage: "safari")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.large)
+                .controlSize(.regular)
 
+                // Online "new game" requires matchmaking, so the route to
+                // another game (and the way out) is back through the lobby.
                 Button {
                     Task { await leaveMatch() }
                 } label: {
-                    Label("Back to lobby", systemImage: "arrow.left.circle")
+                    Label("New Game / Main Menu", systemImage: "house.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)

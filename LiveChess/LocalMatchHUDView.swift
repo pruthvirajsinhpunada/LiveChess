@@ -92,6 +92,32 @@ struct LocalMatchHUDView: View {
                         showGameOverPopup = false
                         coordinator.newGame()
                     },
+                    onAnalyze: {
+                        showGameOverPopup = false
+                        // Build a review of the just-played game and swap the
+                        // active session to it. The scene reads activeSession
+                        // at appearance, so we use the same dismiss→reopen
+                        // dance the env switcher uses (pendingReopen keeps the
+                        // session alive across the rebuild).
+                        let review = ReviewSession(
+                            localMoves: coordinator.match.moves,
+                            status: coordinator.match.status
+                        )
+                        appModel.activeSession = .review(review)
+                        Task {
+                            appModel.pendingReopen = true
+                            appModel.immersiveSpaceState = .inTransition
+                            await dismissImmersiveSpace()
+                            if case .opened = await openImmersiveSpace(
+                                id: appModel.immersiveSpaceID
+                            ) {
+                                // scene rebuilds into the review session
+                            } else {
+                                appModel.immersiveSpaceState = .closed
+                                appModel.pendingReopen = false
+                            }
+                        }
+                    },
                     onMainMenu: {
                         showGameOverPopup = false
                         Task {
@@ -517,6 +543,7 @@ private struct GameOverPopupView: View {
     let elapsedText: String
     let moveCount: Int
     let onNewGame: () -> Void
+    let onAnalyze: () -> Void
     let onMainMenu: () -> Void
 
     // Controls the entry animation: the card fades + slides up on appear.
@@ -565,6 +592,18 @@ private struct GameOverPopupView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
+
+                // Analyze only makes sense if moves were actually played.
+                if moveCount > 0 {
+                    Button {
+                        onAnalyze()
+                    } label: {
+                        Label("Analyze Game", systemImage: "chart.line.uptrend.xyaxis")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                }
 
                 Button(role: .destructive) {
                     onMainMenu()
