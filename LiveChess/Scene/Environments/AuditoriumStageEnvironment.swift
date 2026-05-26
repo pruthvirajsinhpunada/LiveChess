@@ -25,14 +25,18 @@ enum AuditoriumStageEnvironment: EnvironmentScene {
         }
         env.name = "VirtualEnvironment_AuditoriumStage"
 
-        // Authored facing forward (-Z after Y-up conversion). No
-        // rotation; the X/Z translation is then refined dynamically by
-        // `anchorEnvByTable(...)` so the Table lands directly in front
-        // of the user — the player chair authored adjacent to it in
-        // the .blend falls behind world origin and the player spawns
-        // seated at it.
+        // The "no rotation" assumption was wrong — the stage faced the
+        // player away from the board. Rotate 180° about Y so the user,
+        // seated in the presenter chair, looks across the table at the
+        // board (with the stage/audience oriented correctly around them).
+        // `anchorEnvByTable(...)` still pins the Table in front of the
+        // user; this only fixes which way the surrounding stage faces.
+        //
+        // If the board ends up sideways instead of correct, change the
+        // angle to `-.pi / 2` or `.pi / 2` (the Balcony/Dwarven envs use
+        // `-.pi / 2`); 180° is the most likely fix for "facing backwards".
         env.transform.rotation = simd_quatf(
-            angle: 0, axis: SIMD3<Float>(0, 1, 0)
+            angle: .pi, axis: SIMD3<Float>(0, 1, 0)
         )
         env.position = .zero
 
