@@ -25,18 +25,18 @@ enum AuditoriumStageEnvironment: EnvironmentScene {
         }
         env.name = "VirtualEnvironment_AuditoriumStage"
 
-        // The "no rotation" assumption was wrong — the stage faced the
-        // player away from the board. Rotate 180° about Y so the user,
-        // seated in the presenter chair, looks across the table at the
-        // board (with the stage/audience oriented correctly around them).
-        // `anchorEnvByTable(...)` still pins the Table in front of the
-        // user; this only fixes which way the surrounding stage faces.
+        // Seat the player IN one of the chairs. With no rotation the
+        // chairs sat to the user's left/right and the POV floated in
+        // front of the table; rotating -90° about Y swings the chair
+        // axis front-to-back so one chair lands behind the user (their
+        // seat) and the other across the board (opponent), giving a
+        // proper "sitting at the table" chess POV. `anchorEnvByTable(...)`
+        // still pins the Table in front of the user.
         //
-        // If the board ends up sideways instead of correct, change the
-        // angle to `-.pi / 2` or `.pi / 2` (the Balcony/Dwarven envs use
-        // `-.pi / 2`); 180° is the most likely fix for "facing backwards".
+        // If the player ends up in the OPPOSITE chair (board the wrong
+        // way round), flip this to `.pi / 2`.
         env.transform.rotation = simd_quatf(
-            angle: .pi, axis: SIMD3<Float>(0, 1, 0)
+            angle: -.pi / 2, axis: SIMD3<Float>(0, 1, 0)
         )
         env.position = .zero
 
