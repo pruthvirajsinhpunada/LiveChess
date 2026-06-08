@@ -52,8 +52,13 @@ struct PiecePreviewView: View {
         }
         .id(previewIdentity)
         .frame(height: 260)
-        .clipped()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        // NOTE: deliberately NO `.background(material)` / `.clipped()`
+        // here. Wrapping a windowed RealityView whose content has real
+        // 3-D depth in a material background makes visionOS enclose the
+        // reserved volume in a glass "platter" that projects as a big
+        // floating rounded-rect outline beyond the panel. Letting the
+        // piece float directly on the parent surface (the way the Home
+        // hero king does) avoids it entirely.
         .task {
             // Lazily warm the piece-template cache the first time the
             // sheet opens. Same call the immersive scene makes — the

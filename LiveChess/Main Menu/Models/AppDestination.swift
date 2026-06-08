@@ -10,6 +10,7 @@ enum AppDestination: Hashable {
     case playLocal    // On-device Stockfish (single human)
     case playBot      // On-device Stockfish — same lobby card as `playLocal`
     case puzzles
+    case learn        // Lessons / openings — not yet built (Coming Soon)
     case gameReview
     case history
     case profile

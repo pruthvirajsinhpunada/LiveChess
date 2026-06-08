@@ -903,7 +903,7 @@ struct GameReviewPlaceholderView: View {
             icon: "magnifyingglass.circle.fill",
             title: "Game Review",
             signedOutMessage: "Sign in with Lichess to review your games with Stockfish-powered analysis.",
-            accentColor: .blue
+            accentColor: Chess.Palette.bronze
         ) {
             content
         }
@@ -1002,7 +1002,7 @@ struct HistoryPlaceholderView: View {
             icon: "clock.fill",
             title: "Game History",
             signedOutMessage: "Sign in with Lichess to browse your past games.",
-            accentColor: .orange
+            accentColor: Chess.Palette.bronze
         ) {
             content
         }
@@ -1068,9 +1068,10 @@ struct HistoryPlaceholderView: View {
     }
 }
 
-// MARK: - Profile (unchanged from before)
+// MARK: - Profile
 
 struct ProfilePlaceholderView: View {
+    @Bindable var viewModel: HomeViewModel
     @Environment(AppModel.self) private var appModel
 
     var body: some View {
@@ -1078,16 +1079,16 @@ struct ProfilePlaceholderView: View {
             icon: "person.fill",
             title: "Profile",
             signedOutMessage: "Sign in with Lichess to see your rating history, ratings across speeds, and stats.",
-            accentColor: .teal
+            accentColor: Chess.Palette.bronze
         ) {
             if let account = appModel.lichess.account {
-                ProfileCardView(account: account)
+                ProfileDashboardView(account: account, viewModel: viewModel)
             } else {
                 ComingSoonView(
                     icon: "person.fill",
                     title: "Profile",
                     description: "Loading your Lichess profile…",
-                    accentColor: .teal
+                    accentColor: Chess.Palette.bronze
                 )
             }
         }
@@ -1095,114 +1096,6 @@ struct ProfilePlaceholderView: View {
     }
 }
 
-private struct ProfileCardView: View {
-    let account: LichessAccount
-    @Environment(AppModel.self) private var appModel
-    @State private var showSignOutConfirm = false
-
-    // Single source of truth for which perfs we surface lives on
-    // `LichessAccount.displayedPerfKeys`. Bullet/Blitz are excluded
-    // there because we can't play them in this app, so showing those
-    // ratings would be misleading clutter.
-    private var displayedRows: [LichessAccount.RatingRow] {
-        account.displayedRatingRows
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                VStack(spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(.teal.gradient)
-                            .frame(width: 96, height: 96)
-                        Text(String(account.username.prefix(1)).uppercased())
-                            .font(.system(size: 38, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
-                    HStack(spacing: 6) {
-                        if let title = account.title {
-                            Text(title)
-                                .font(.callout.weight(.bold))
-                                .foregroundStyle(.orange)
-                        }
-                        Text(account.username)
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                    }
-                }
-                .padding(.top, 24)
-
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2),
-                          spacing: 12) {
-                    ForEach(displayedRows) { row in
-                        ratingChip(row: row)
-                    }
-                }
-                .padding(.horizontal, 24)
-
-                Button(role: .destructive) {
-                    showSignOutConfirm = true
-                } label: {
-                    Label("Sign out of Lichess", systemImage: "rectangle.portrait.and.arrow.right")
-                        .frame(maxWidth: 280)
-                }
-                .controlSize(.large)
-                .buttonStyle(.bordered)
-                .padding(.top, 12)
-                .confirmationDialog(
-                    "Sign out of Lichess?",
-                    isPresented: $showSignOutConfirm,
-                    titleVisibility: .visible
-                ) {
-                    Button("Sign out", role: .destructive) {
-                        Task { await appModel.lichess.signOut() }
-                    }
-                    Button("Cancel", role: .cancel) {}
-                } message: {
-                    Text("You'll need to sign in again to play rated games or sync puzzles.")
-                }
-
-                Spacer(minLength: 24)
-            }
-            .padding(.horizontal, 28)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .glassBackgroundEffect()
-    }
-
-    @ViewBuilder
-    private func ratingChip(row: LichessAccount.RatingRow) -> some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 5) {
-                Image(systemName: row.icon)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(row.label)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Text(ratingText(for: row))
-                .font(.title3.monospacedDigit())
-                .fontWeight(.semibold)
-            Text(row.games.map { "\($0) games" } ?? " ")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 14)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
-        )
-    }
-
-    private func ratingText(for row: LichessAccount.RatingRow) -> String {
-        guard let r = row.rating else { return "—" }
-        return String(r)   // ungrouped — chess convention ("1500" not "1,500")
-    }
-}
 
 // MARK: - Settings & Notifications (still placeholders)
 
@@ -1557,46 +1450,49 @@ struct SettingsPlaceholderView: View {
     @ViewBuilder
     private var boardAndPiecesPane: some View {
         VStack(alignment: .leading, spacing: Chess.Space.m) {
+            // Header/controls stay in a glass card…
             ChessCard(.standard) {
-                VStack(alignment: .leading, spacing: Chess.Space.m) {
-                    HStack(alignment: .top, spacing: Chess.Space.s) {
-                        Image(systemName: "paintbrush.fill")
-                            .font(.title2.weight(.semibold))
-                            .foregroundStyle(Chess.Palette.bronze)
-                            .frame(width: 48, height: 48)
-                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: Chess.Radius.row, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: Chess.Radius.row, style: .continuous)
-                                    .strokeBorder(Chess.Palette.bronze.opacity(0.28), lineWidth: 0.75)
-                                    .allowsHitTesting(false)
-                            )
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(appModel.pieceCustomization.current.preset.displayName)
-                                .font(.title3.weight(.semibold))
-                            Text("Compare the default set with the custom set before choosing.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        previewSelectorControls
-                    }
-
-                    Divider().overlay(Chess.Palette.bronze.opacity(0.25))
-
-                    HStack(alignment: .top, spacing: Chess.Space.s) {
-                        comparisonPreviewTile(
-                            title: "Default",
-                            subtitle: PieceMaterial.default.preset.displayName,
-                            material: .default
+                HStack(alignment: .top, spacing: Chess.Space.s) {
+                    Image(systemName: "paintbrush.fill")
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(Chess.Palette.bronze)
+                        .frame(width: 48, height: 48)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: Chess.Radius.row, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Chess.Radius.row, style: .continuous)
+                                .strokeBorder(Chess.Palette.bronze.opacity(0.28), lineWidth: 0.75)
+                                .allowsHitTesting(false)
                         )
-                        comparisonPreviewTile(
-                            title: "Custom",
-                            subtitle: appModel.pieceCustomization.current.preset.displayName,
-                            material: appModel.pieceCustomization.current
-                        )
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(appModel.pieceCustomization.current.preset.displayName)
+                            .font(.title3.weight(.semibold))
+                        Text("Compare the default set with the custom set before choosing.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
+                    Spacer()
+                    previewSelectorControls
                 }
             }
+
+            // …but the live 3-D previews float OUTSIDE any material-
+            // backed card. A material background that tightly bounds a
+            // windowed RealityView is what makes visionOS draw the big
+            // floating glass platter; letting the pieces float on
+            // passthrough (like the Home hero king) removes it entirely.
+            HStack(alignment: .top, spacing: Chess.Space.l) {
+                comparisonPreviewTile(
+                    title: "Default",
+                    subtitle: PieceMaterial.default.preset.displayName,
+                    material: .default
+                )
+                comparisonPreviewTile(
+                    title: "Custom",
+                    subtitle: appModel.pieceCustomization.current.preset.displayName,
+                    material: appModel.pieceCustomization.current
+                )
+            }
+            .padding(.horizontal, Chess.Space.xs)
 
             settingsSubcard(title: "Piece material", icon: "circle.grid.2x2.fill") {
                 LazyVGrid(
@@ -1721,21 +1617,23 @@ struct SettingsPlaceholderView: View {
                 }
                 Spacer()
             }
+            // Live 3-D preview. No clip / material wrapper on the
+            // RealityView — that's what made visionOS draw the big
+            // floating glass platter. The piece floats directly on the
+            // tile surface, like the Home hero king.
             PiecePreviewView(
                 material: material,
                 previewSide: $settingsPreviewSide,
                 previewKind: $settingsPreviewKind
             )
-            .clipShape(RoundedRectangle(cornerRadius: Chess.Radius.row, style: .continuous))
+            .frame(maxWidth: .infinity)
         }
         .padding(Chess.Space.s)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: Chess.Radius.row, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Chess.Radius.row, style: .continuous)
-                .strokeBorder(.white.opacity(0.08), lineWidth: 0.5)
-                .allowsHitTesting(false)
-        )
+        // Intentionally NO material `.background` here — a frame-sized
+        // material backing directly behind the 3-D RealityView is what
+        // makes visionOS draw the oversized floating glass platter. The
+        // piece floats on passthrough, same as the borderless Home king.
     }
 
     private func previewSideButton(_ side: Side) -> some View {
@@ -2632,13 +2530,13 @@ struct NotificationsPlaceholderView: View {
             icon: "bell.fill",
             title: "Notifications",
             signedOutMessage: "Sign in with Lichess to see your notifications.",
-            accentColor: .indigo
+            accentColor: Chess.Palette.bronze
         ) {
             ComingSoonView(
                 icon: "bell.fill",
                 title: "Notifications",
                 description: "Challenges, game alerts, and messages from Lichess will appear here.",
-                accentColor: .indigo
+                accentColor: Chess.Palette.bronze
             )
         }
         .navigationTitle("Notifications")

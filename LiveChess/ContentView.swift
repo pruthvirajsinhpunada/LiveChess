@@ -7,11 +7,12 @@
 
 import SwiftUI
 
-/// Window root. Shows the Main Menu (sidebar + content) as the first
-/// thing the user sees on launch. The Main Menu wires straight into
-/// the existing `LobbyView` / `LichessSession` plumbing — Online Game,
-/// Local Game, and Play with Bot in the sidebar each deep-link into
-/// `LobbyView` with the right configuration card pre-selected.
+/// Window root. Shows the redesigned Main Menu — a floating glass
+/// `NavRailView` on the left and a content panel on the right — as the
+/// first thing the user sees on launch. The rail wires straight into
+/// the existing `LobbyView` / `LichessSession` plumbing: Online Game,
+/// Local Game, Puzzles, and Analyze each route through
+/// `HomeViewModel.navigate(to:)` into the matching screen.
 struct ContentView: View {
 
     @Environment(AppModel.self) private var appModel
@@ -19,29 +20,24 @@ struct ContentView: View {
     @State private var homeViewModel = HomeViewModel()
 
     var body: some View {
-        NavigationSplitView {
-            SidebarView(viewModel: homeViewModel)
-        } detail: {
+        HStack(spacing: Chess.Space.xxl) {
+            // Persistent rail — its OWN floating glass capsule, set
+            // apart from the content panel (not merged into it). Stays
+            // put while the panel swaps and while child screens push.
+            NavRailView(viewModel: homeViewModel)
+
+            // Content panel. Its own NavigationStack so screens that
+            // push detail (GameReviewRoute) or set a navigation title
+            // keep working without the rail scrolling away.
             NavigationStack {
                 detailView
                     .navigationDestination(for: GameReviewRoute.self) { route in
                         GameReviewDetailView(game: route.game, username: route.username)
                     }
-                    .toolbar {
-                        if (homeViewModel.selectedDestination ?? .home) != .home {
-                            ToolbarItem(placement: .navigationBarLeading) {
-                                Button {
-                                    homeViewModel.navigate(to: .home)
-                                } label: {
-                                    Label("Home", systemImage: "chevron.left")
-                                        .labelStyle(.iconOnly)
-                                }
-                                .hoverEffect(.lift)
-                            }
-                        }
-                    }
             }
         }
+        .padding(Chess.Space.l)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
             // 1. Make sure the home VM can read the signed-in account.
             homeViewModel.attach(session: appModel.lichess)
@@ -72,7 +68,7 @@ struct ContentView: View {
         // clears the selection set).
         switch homeViewModel.selectedDestination ?? .home {
         case .home:
-            HomeView(viewModel: homeViewModel)
+            HomeDashboardView(viewModel: homeViewModel)
 
         // All three Play sub-modes deep-link into the existing lobby
         // with the matching configuration card pre-selected. `.id` is
@@ -93,9 +89,16 @@ struct ContentView: View {
                 .id(AppDestination.playBot)
 
         case .puzzles:    PuzzlesPlaceholderView()
+        case .learn:
+            ComingSoonView(
+                icon: "book.fill",
+                title: "Learn",
+                description: "Guided lessons and opening trainers are on the way.",
+                accentColor: Chess.Palette.bronze
+            )
         case .gameReview: GameReviewPlaceholderView()
         case .history:    HistoryPlaceholderView()
-        case .profile:    ProfilePlaceholderView()
+        case .profile:    ProfilePlaceholderView(viewModel: homeViewModel)
         case .settings:   SettingsPlaceholderView()
         case .notifications: NotificationsPlaceholderView()
         }

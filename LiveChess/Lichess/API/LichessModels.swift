@@ -12,10 +12,59 @@ struct LichessAccount: Sendable, Decodable, Equatable {
     let title: String?              // GM, IM, FM, etc. — nil for untitled
     let perfs: [String: LichessPerf]?
 
+    /// Account creation time (ms since epoch). Drives the profile
+    /// "Member since" stat. Optional — older decode paths / fixtures
+    /// that don't carry it stay valid.
+    let createdAt: TimeInterval?
+
+    /// Aggregate game counts from `/api/account` (`count` block) — feeds
+    /// the profile's real "Games Played" and "Win Rate" stats instead
+    /// of estimating from a recent-games sample.
+    let count: GameCount?
+
+    /// Public profile blob (`profile` key) — we read only `country`
+    /// (ISO code, e.g. "IT") and `location` for the profile footer.
+    let profile: Profile?
+
+    struct GameCount: Sendable, Decodable, Equatable {
+        let all: Int?
+        let rated: Int?
+        let win: Int?
+        let loss: Int?
+        let draw: Int?
+    }
+
+    struct Profile: Sendable, Decodable, Equatable {
+        let country: String?
+        let location: String?
+        let bio: String?
+    }
+
     /// Quick rating fetch for a given speed; falls back to nil if the user
     /// has never played that variant.
     func rating(forPerfKey key: String) -> Int? {
         perfs?[key]?.rating
+    }
+
+    /// Recent rating trend for a perf (Lichess's own `prog` field — the
+    /// signed delta over the user's last dozen games in that speed).
+    func progress(forPerfKey key: String) -> Int? {
+        perfs?[key]?.prog
+    }
+
+    /// Account creation date, or `nil` when Lichess didn't send it.
+    var memberSince: Date? {
+        createdAt.map { Date(timeIntervalSince1970: $0 / 1000) }
+    }
+
+    /// Lifetime games played (`count.all`).
+    var gamesPlayed: Int? { count?.all }
+
+    /// Lifetime win rate as a 0–100 percentage, or `nil` when there
+    /// aren't enough games to be meaningful.
+    var winRatePercent: Double? {
+        guard let all = count?.all, all > 0, let win = count?.win else { return nil }
+        return Double(win) / Double(all) * 100
     }
 
     /// One row of the "your ratings" strip shown on the home screen.

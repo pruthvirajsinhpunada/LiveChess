@@ -101,6 +101,20 @@ struct LichessGame: Identifiable, Decodable, Sendable {
         }
     }
 
+    /// Lichess's per-side analysis summary (inaccuracy / mistake /
+    /// blunder counts + acpl + accuracy) for the requesting user.
+    /// `nil` when the game hasn't been analyzed or the username
+    /// doesn't match either side. Drives the home "Last Analysis"
+    /// card's accuracy ring + judgment chips with real numbers
+    /// instead of hardcoded placeholders.
+    func analysisSummary(for username: String) -> GameAnalysis? {
+        switch myColor(for: username) {
+        case "white": return players.white.analysis
+        case "black": return players.black.analysis
+        default:      return nil
+        }
+    }
+
     func result(for username: String) -> GameResult {
         guard let winner else { return .draw }
         guard let myColor = myColor(for: username) else { return .draw }
@@ -156,6 +170,37 @@ enum GameResult: Sendable {
         case .draw: "D"
         }
     }
+}
+
+// MARK: - Rating history
+
+/// One perf's rating timeline from
+/// `/api/user/{username}/rating-history` (public, no auth). Each raw
+/// point is `[year, monthZeroBased, day, rating]`.
+struct LichessRatingHistory: Decodable, Sendable, Identifiable {
+    let name: String           // "Rapid", "Blitz", "Bullet", ...
+    let points: [[Int]]
+    var id: String { name }
+
+    /// Decoded `(date, rating)` samples, oldest → newest. Lichess
+    /// encodes the month 0-based, so we add 1 before building the date.
+    var samples: [RatingSample] {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC") ?? .current
+        return points.compactMap { p in
+            guard p.count == 4 else { return nil }
+            var dc = DateComponents()
+            dc.year = p[0]; dc.month = p[1] + 1; dc.day = p[2]
+            guard let date = cal.date(from: dc) else { return nil }
+            return RatingSample(date: date, rating: p[3])
+        }
+    }
+}
+
+struct RatingSample: Identifiable, Sendable {
+    let date: Date
+    let rating: Int
+    var id: Date { date }
 }
 
 // MARK: - Puzzle

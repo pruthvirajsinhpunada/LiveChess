@@ -26,6 +26,14 @@ struct LiveChessApp: App {
             ContentView()
                 .environment(appModel)
         }
+        // `.plain` removes the system glass substrate behind the whole
+        // window. Each screen (Home dashboard, Puzzles, Profile, …)
+        // already supplies its own `.glassBackgroundEffect()` panel,
+        // and the rail is its own glass capsule — so the substrate was
+        // redundant. It was also what made the in-window 3-D piece
+        // previews project those big floating rounded-rect volume
+        // outlines; dropping it removes them.
+        .windowStyle(.plain)
 
         // Dedicated window for the Pieces & Board customization
         // screen. visionOS `.sheet()` ignores `.frame(minWidth:)`
@@ -40,6 +48,11 @@ struct LiveChessApp: App {
         }
         .defaultSize(width: 1280, height: 800)
         .windowResizability(.contentSize)
+        // `.plain` drops the system glass panel that otherwise frames
+        // the window — the content's own `ChessCard` surfaces supply
+        // all the backing we need, so the big empty translucent box
+        // around the cards disappears.
+        .windowStyle(.plain)
 
         ImmersiveSpace(id: appModel.immersiveSpaceID) {
             ImmersiveSceneHost(appModel: appModel)

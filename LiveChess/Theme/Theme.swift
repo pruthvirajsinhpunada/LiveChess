@@ -54,11 +54,11 @@ enum Chess {
         /// text colour — too low contrast on translucent surfaces.
         static let cream  = Color(red: 0.929, green: 0.901, blue: 0.831)
 
-        /// Warm bronze sampled from the king's highlights in the app
-        /// icon. Reserved for the brand "+" wordmark, selected-state
-        /// strokes, and rare flourishes (accuracy %, brilliant !!).
+        /// Brand accent — `#C3AE8E`. The app-wide theme/gold for the
+        /// Play Now button, selected-state strokes, the "+" wordmark,
+        /// rail active disc, and flourishes (accuracy %, brilliant !!).
         /// Pure white still owns the general accent role.
-        static let bronze = Color(red: 0.769, green: 0.647, blue: 0.455)
+        static let bronze = Color(red: 0.765, green: 0.682, blue: 0.557) // #C3AE8E
 
         /// Material fill behind cards — wraps `Material` so we can
         /// swap globally if the depth balance ever changes.

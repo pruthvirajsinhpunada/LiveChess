@@ -78,6 +78,18 @@ final class LichessService {
         )
     }
 
+    // MARK: - Rating history
+
+    /// `/api/user/{username}/rating-history` — public (no token needed).
+    /// Returns one timeline per perf; the profile chart reads the
+    /// selected speed's `samples`.
+    func fetchRatingHistory(username: String) async throws -> [LichessRatingHistory] {
+        try await apiClient.request(
+            endpoint: "/api/user/\(username)/rating-history",
+            skipAuth: true
+        )
+    }
+
     // MARK: - Daily puzzle
 
     /// `/api/puzzle/daily` — public, no token required.
