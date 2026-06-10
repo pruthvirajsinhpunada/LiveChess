@@ -47,24 +47,39 @@ struct PuzzleMiniBoardView: View {
             //    occupied square. Canvas `draw(Text, at:)` resolves
             //    once per glyph and is much cheaper than mounting
             //    a SwiftUI Text per square.
+            //
+            //    BOTH sides use the FILLED glyph set (side conveyed
+            //    by colour) — mixing outline whites (♔) with filled
+            //    blacks (♚) made black pieces read as heavy blobs
+            //    next to hollow whites. A soft dark contact shadow
+            //    keeps cream pieces legible on light squares.
             let pieceFont = Font.system(size: cell * 0.82,
                                         weight: .regular,
                                         design: .default)
+            let whitePiece = Color(red: 0.99, green: 0.97, blue: 0.93)
+            let blackPiece = Color(red: 0.13, green: 0.10, blue: 0.08)
             for row in 0..<8 {
                 for col in 0..<8 {
                     guard let piece = board[row][col] else { continue }
                     let glyph = Self.glyph(for: piece)
-                    let textColor: Color = piece.isUppercase ? .white : .black
-                    let resolved = context.resolve(
+                    let isWhite = piece.isUppercase
+                    var pieceContext = context
+                    if isWhite {
+                        pieceContext.addFilter(.shadow(
+                            color: .black.opacity(0.5),
+                            radius: 0.8, x: 0, y: 0.8
+                        ))
+                    }
+                    let resolved = pieceContext.resolve(
                         Text(glyph)
                             .font(pieceFont)
-                            .foregroundStyle(textColor)
+                            .foregroundStyle(isWhite ? whitePiece : blackPiece)
                     )
                     let centre = CGPoint(
                         x: (CGFloat(col) + 0.5) * cell,
                         y: (CGFloat(row) + 0.5) * cell
                     )
-                    context.draw(resolved, at: centre, anchor: .center)
+                    pieceContext.draw(resolved, at: centre, anchor: .center)
                 }
             }
         }
@@ -112,20 +127,17 @@ struct PuzzleMiniBoardView: View {
             : Color(red: 0.55, green: 0.39, blue: 0.27)
     }
 
+    /// FILLED glyph for both sides (side is conveyed by colour, not
+    /// glyph variant). `\u{FE0E}` forces text rendering so the glyph
+    /// takes `foregroundStyle` instead of the emoji bitmap.
     static func glyph(for c: Character) -> String {
-        switch c {
-        case "K": return "♔"
-        case "Q": return "♕"
-        case "R": return "♖"
-        case "B": return "♗"
-        case "N": return "♘"
-        case "P": return "♙"
-        case "k": return "♚"
-        case "q": return "♛"
-        case "r": return "♜"
-        case "b": return "♝"
-        case "n": return "♞"
-        case "p": return "♟"
+        switch c.lowercased().first ?? c {
+        case "k": return "♚\u{FE0E}"
+        case "q": return "♛\u{FE0E}"
+        case "r": return "♜\u{FE0E}"
+        case "b": return "♝\u{FE0E}"
+        case "n": return "♞\u{FE0E}"
+        case "p": return "♟\u{FE0E}"
         default:  return " "
         }
     }

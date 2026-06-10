@@ -96,10 +96,10 @@ struct ReviewHUDView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         } else if session.analysisResults.isEmpty {
-            // Lichess didn't return per-ply analysis for this game —
-            // moves are still navigable but there are no classifications
-            // to show. Spell that out instead of leaving the card blank.
-            Text("No Lichess analysis for this game")
+            // The in-app Stockfish batch hasn't produced
+            // classifications yet (failed or not started) — moves are
+            // still navigable. The Moves panel offers the retry.
+            Text("Analysis pending — see Moves panel")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

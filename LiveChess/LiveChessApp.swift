@@ -35,24 +35,11 @@ struct LiveChessApp: App {
         // outlines; dropping it removes them.
         .windowStyle(.plain)
 
-        // Dedicated window for the Pieces & Board customization
-        // screen. visionOS `.sheet()` ignores `.frame(minWidth:)`
-        // and renders at a fixed iPad-portrait size — totally wrong
-        // for a side-by-side preview + controls layout. A separate
-        // WindowGroup gets its own full visionOS window with
-        // proper sizing + resizability, matching the home window's
-        // footprint.
-        WindowGroup(id: Self.piecesWindowID) {
-            PieceCustomizationView()
-                .environment(appModel)
-        }
-        .defaultSize(width: 1280, height: 800)
-        .windowResizability(.contentSize)
-        // `.plain` drops the system glass panel that otherwise frames
-        // the window — the content's own `ChessCard` surfaces supply
-        // all the backing we need, so the big empty translucent box
-        // around the cards disappears.
-        .windowStyle(.plain)
+        // (The Pieces & Board customization screen used to live in its
+        // own WindowGroup here. It's now pushed inside the main
+        // window's NavigationStack — see `CustomizeRoute` — so it
+        // renders like every other screen instead of spawning a second
+        // floating window over the home panel.)
 
         ImmersiveSpace(id: appModel.immersiveSpaceID) {
             ImmersiveSceneHost(appModel: appModel)
@@ -67,8 +54,6 @@ struct LiveChessApp: App {
 
     /// Window-group id for the Main Menu panel.
     static let menuWindowID = "MainMenu"
-    /// Window-group id for the Pieces & Board customization screen.
-    static let piecesWindowID = "PiecesAndBoard"
 }
 
 /// Wrapper around `ImmersiveView` that owns the window-management
@@ -103,6 +88,34 @@ private struct ImmersiveSceneHost: View {
             .onDisappear {
                 appModel.immersiveSpaceState = .closed
                 if !appModel.pendingReopen {
+                    // Closing the space mid-game = abandoning it.
+                    // Resign (or abort, for move-zero games) so the
+                    // opponent isn't left hanging and no "ongoing"
+                    // zombie game lingers on the account to confuse
+                    // the next matchmaking search. Finished games
+                    // (result already set) are left untouched.
+                    if case .online(let session) = appModel.activeSession,
+                       session.result == nil {
+                        Task {
+                            await session.resign()
+                            if session.result == nil { await session.abort() }
+                            await session.disconnect()
+                        }
+                        appModel.activeSession = nil
+                    }
+                    // Same rule for an in-flight seek: closing the
+                    // space cancels matchmaking outright.
+                    if appModel.matchmaking != nil {
+                        appModel.lichessLobby?.cancelSeek()
+                        appModel.matchmaking = nil
+                    }
+                    // And for puzzles: closing the space mid-solve is
+                    // a rated fail, same as the in-HUD Exit button —
+                    // otherwise the Digital Crown is a free skip.
+                    if case .puzzle(let session) = appModel.activeSession {
+                        session.abandonIfSolving()
+                        appModel.activeSession = nil
+                    }
                     openWindow(id: LiveChessApp.menuWindowID)
                 }
             }

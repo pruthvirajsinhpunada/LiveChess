@@ -53,6 +53,13 @@ final class LichessLobbyController {
     @ObservationIgnored
     var onGameSessionReady: (@MainActor (LichessMatchSession) -> Void)?
 
+    /// Fired when an in-flight Quick Pair seek dies on an error (NOT
+    /// on user cancel). The matchmaking flow opens the immersive with
+    /// a HUD before the seek starts — this hook lets the host tear
+    /// that HUD down instead of letting it spin over a dead seek.
+    @ObservationIgnored
+    var onSeekFailed: (@MainActor (LichessError) -> Void)?
+
     let session: LichessSession
     private let rules: any RulesEngine
 
@@ -217,6 +224,21 @@ final class LichessLobbyController {
 
         let api = session.api
         seekTask = Task { [weak self] in
+            // Clean slate before seeking: per the app's UX, closing
+            // the board abandoned any previous game — make sure
+            // nothing is still "ongoing" on the account (crash,
+            // earlier bug, network drop) before entering the pool.
+            // Resign needs a started game; abort covers move-zero
+            // games. Best-effort: failures don't block the seek.
+            if let leftovers = try? await api.accountPlaying() {
+                for game in leftovers {
+                    do { try await api.resign(gameID: game.gameId) }
+                    catch { try? await api.abort(gameID: game.gameId) }
+                }
+                if !leftovers.isEmpty {
+                    await self?.refreshActiveGames()
+                }
+            }
             do {
                 try await api.runSeek(timeControl: timeControl, rated: rated)
             } catch let error as LichessError {
@@ -231,10 +253,66 @@ final class LichessLobbyController {
                 return
             }
             // Server closed the connection — partner found. The
-            // gameStart event lands on the global stream; nothing else
-            // to do here.
+            // gameStart event normally lands on the global stream, but
+            // it is NOT guaranteed to arrive: Lichess never replays
+            // events missed during a stream reconnect, and the old
+            // LobbyView polling fallback is dead while the immersive
+            // is open (its window is dismissed). So fetch the freshly
+            // paired game DIRECTLY and open it — `openedGameIDs`
+            // de-dupes against the event-stream path winning the race.
+            await self?.openNewlyPairedGame()
             self?.clearSeekPending()
         }
+    }
+
+    /// Belt-and-braces opener for a seek that the server just closed
+    /// (= matched). Polls `account/playing` briefly — the game can
+    /// take a moment to materialise — and opens the first game we
+    /// haven't already routed. If the event stream's `gameStart`
+    /// arrives first, `openedGameIDs` makes this a no-op; if NOTHING
+    /// shows up the seek died abnormally, so fail loudly instead of
+    /// letting the matchmaking HUD spin forever.
+    private func openNewlyPairedGame() async {
+        #if DEBUG
+        print("[QuickPair] seek stream closed — polling account/playing for the paired game")
+        #endif
+        for _ in 0..<8 {
+            if Task.isCancelled { return }   // user cancelled the seek
+            do {
+                let playing = try await session.api.accountPlaying()
+                #if DEBUG
+                print("[QuickPair] account/playing → \(playing.map(\.gameId))")
+                #endif
+                activeGames = playing
+                if let fresh = playing.first(where: { !openedGameIDs.contains($0.gameId) }) {
+                    pendingAction = .openingMatch(opponent: fresh.opponent.username)
+                    resumeActiveGame(fresh)
+                    return
+                }
+            } catch {
+                // Transient — keep polling; the timeout below is the
+                // real failure handler.
+            }
+            try? await Task.sleep(for: .milliseconds(700))
+        }
+        // The event-stream path may still have routed the game while
+        // we were polling — only report failure if it didn't.
+        if case .openingMatch = pendingAction { return }
+        handleSeekFailure(.serverError(status: 0, body: "Seek ended without a game"))
+    }
+
+    /// Cancels the current rated seek and immediately re-enters the
+    /// lobby as CASUAL with the same time control. Board-API seeks
+    /// can only create lobby HOOKS (they can't join lichess's
+    /// quick-pairing pools), and rated hooks are only visible to
+    /// signed-in players in range — casual hooks are visible to every
+    /// lobby visitor including anonymous players, so they pair
+    /// dramatically faster.
+    func reseekCasual() {
+        guard case .seeking = pendingAction,
+              let timeControl = lastRequestedTimeControl else { return }
+        cancelSeek()
+        quickPair(rated: false, timeControl: timeControl)
     }
 
     /// Cancels an in-flight seek. No-op if there isn't one.
@@ -364,7 +442,11 @@ final class LichessLobbyController {
         let oldIDs = Set(activeGames.map { $0.gameId })
         do {
             let updated = try await session.api.accountPlaying()
-            activeGames = updated
+            // A successful poll proves the connection is healthy —
+            // clear any stale banner. Without this, one transient
+            // failure left "No connection to Lichess." on screen
+            // forever, because nothing ever reset it.
+            lastError = nil
             if case .seeking = pendingAction {
                 if let newlyMatched = updated.first(where: {
                     !oldIDs.contains($0.gameId) && !openedGameIDs.contains($0.gameId)
@@ -373,6 +455,34 @@ final class LichessLobbyController {
                     resumeActiveGame(newlyMatched)
                 }
             }
+            // Product rule: if the user isn't IN a game, that game is
+            // over. Any playing game we haven't routed into a session
+            // this run (`openedGameIDs`) is an orphan from a close /
+            // crash — finish it server-side instead of surfacing a
+            // "resume" list. Resign needs a started game; abort
+            // covers move-zero games.
+            //
+            // Guarded on `pendingAction == nil`: while a seek /
+            // challenge is mid-flight, a brand-new game can show up
+            // here moments before its `gameStart` event — culling it
+            // would resign the match we're about to play.
+            if pendingAction == nil {
+                var remaining: [LichessPlayingGame] = []
+                for game in updated {
+                    if openedGameIDs.contains(game.gameId) {
+                        remaining.append(game)
+                    } else {
+                        do { try await session.api.resign(gameID: game.gameId) }
+                        catch { try? await session.api.abort(gameID: game.gameId) }
+                    }
+                }
+                activeGames = remaining
+            } else {
+                activeGames = updated
+            }
+        } catch is CancellationError {
+            // Poll cancelled by navigation / teardown — not an error,
+            // and not worth a banner.
         } catch let error as LichessError {
             lastError = error
         } catch {
@@ -427,6 +537,7 @@ final class LichessLobbyController {
         seekTask = nil
         pendingAction = nil
         lastError = error
+        onSeekFailed?(error)
     }
 
     private func clearSeekPending() {

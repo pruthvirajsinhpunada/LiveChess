@@ -169,6 +169,20 @@ final class PuzzleSession: MatchSession {
         hintHandler?(hintLevel, next)
     }
 
+    /// Closing the puzzle while still solving counts as a failed
+    /// attempt. Lichess never lets a started rated round escape — it
+    /// keeps the round pending until you finish it. We can't restore
+    /// a round across sessions, so a penalty-free exit would be a
+    /// free skip (= rating inflation). Idempotent.
+    func abandonIfSolving() {
+        guard status == .solving else { return }
+        status = .failed
+        if !ratingOutcomeRecorded {
+            ratingOutcomeRecorded = true
+            onFailedWithRating?(puzzle.id, puzzle.rating, puzzle.ratingDeviation)
+        }
+    }
+
     /// Clears any visible hint overlay and resets the disclosure stage.
     /// Called automatically when the user makes a correct move, when
     /// the puzzle restarts, and after an opponent reply. The renderer

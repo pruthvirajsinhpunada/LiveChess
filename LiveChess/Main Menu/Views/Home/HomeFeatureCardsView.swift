@@ -435,60 +435,35 @@ struct FeatureCardButton: View {
 }
 
 // MARK: - Mini Chess Board
-// A decorative 4x4 chessboard pattern with chess piece emojis.
+// Decorative board thumbnails for the home cards. Rendered with the
+// SAME `PuzzleMiniBoardView` Canvas the puzzle browser's Daily Puzzle
+// card uses — full 8×8, real positions, proper piece glyphs — instead
+// of the old 4×4 grid of mismatched outline/filled symbols.
 // NOT a real chess engine — purely visual decoration.
 enum MiniBoardVariant { case puzzle, review }
 
 struct MiniChessBoardView: View {
     var variant: MiniBoardVariant = .puzzle
-    
-    // Different piece positions for puzzle vs review
-    private var layout: [(Bool, String?)] {
+
+    /// Fixed decorative positions — a tactical middlegame for the
+    /// puzzle card, a tidy developed position for review/match cards.
+    private var fen: String {
         switch variant {
         case .puzzle:
-            return [
-                (true, "♚"), (false, nil), (true, nil), (false, "♜"),
-                (false, nil), (true, nil), (false, "♟"), (true, nil),
-                (true, nil), (false, "♙"), (true, nil), (false, nil),
-                (false, "♔"), (true, nil), (false, nil), (true, "♕")
-            ]
+            return "6k1/pb3pp1/1p2q2p/8/2Pr4/1P4P1/P3QPBP/3R2K1"
         case .review:
-            return [
-                (false, nil), (true, "♞"), (false, "♛"), (true, nil),
-                (true, "♜"), (false, nil), (true, nil), (false, "♝"),
-                (false, "♙"), (true, nil), (false, "♗"), (true, nil),
-                (true, nil), (false, "♔"), (true, "♖"), (false, nil)
-            ]
+            return "r2q1rk1/pp2bppp/2n1pn2/4p3/8/2NPBN2/PPQ1BPPP/R4RK1"
         }
     }
-    
+
     var body: some View {
-        // 4x4 grid of squares
-        LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 4),
-            spacing: 0
-        ) {
-            ForEach(layout.indices, id: \.self) { index in
-                let (isLight, piece) = layout[index]
-                ZStack {
-                    // Square color
-                    Rectangle()
-                        .fill(isLight ? Color(red: 0.94, green: 0.85, blue: 0.71) : Color(red: 0.71, green: 0.53, blue: 0.39))
-                    
-                    // Piece emoji if present
-                    if let piece = piece {
-                        Text(piece)
-                            .font(.system(size: 11))
-                    }
-                }
-                .aspectRatio(1, contentMode: .fit)
-            }
+        GeometryReader { geo in
+            PuzzleMiniBoardView(
+                fen: fen,
+                size: min(geo.size.width, geo.size.height)
+            )
         }
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .strokeBorder(.white.opacity(0.15), lineWidth: 0.5)
-        )
+        .aspectRatio(1, contentMode: .fit)
     }
 }
 

@@ -261,10 +261,28 @@ struct ProfileDashboardView: View {
         .background(.thinMaterial, in: Capsule())
     }
 
+    /// Chart-ready samples. Lichess's rating history records ONE
+    /// point per DAY — a player whose rated games all happened today
+    /// has a single sample, which can't draw a line ("Not enough
+    /// rated games" even though they clearly played). Synthesize a
+    /// day-earlier anchor from the perf's recent progression
+    /// (`prog`, the same delta shown as "↑31 Recent") so the chart
+    /// shows the real trend from day one.
+    private func chartSamples(forHistoryName name: String) -> [RatingSample] {
+        let raw = Array(model.samples(forHistoryName: name).suffix(60))
+        guard raw.count == 1, let only = raw.first else { return raw }
+        let prog = account.progress(forPerfKey: selectedPerf) ?? 0
+        return [
+            RatingSample(date: only.date.addingTimeInterval(-86_400),
+                         rating: only.rating - prog),
+            only,
+        ]
+    }
+
     @ViewBuilder
     private var ratingChart: some View {
         let name = perfTabs.first { $0.key == selectedPerf }?.historyName ?? "Rapid"
-        let samples = Array(model.samples(forHistoryName: name).suffix(60))
+        let samples = chartSamples(forHistoryName: name)
         if samples.count >= 2 {
             Chart(samples) { sample in
                 LineMark(

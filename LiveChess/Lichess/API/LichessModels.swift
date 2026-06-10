@@ -222,7 +222,12 @@ struct LichessAICreatedGame: Sendable, Decodable, Equatable {
     let createdAt: Int64?
     let fullId: String?
     let player: String?             // "white" | "black"
-    let status: String?
+    /// Tolerant type — Lichess sends status as a string, an int id,
+    /// or an {id,name} object depending on endpoint era. A `String?`
+    /// here made the whole create-AI-challenge response fail to
+    /// decode ("Unrecognized Lichess response") whenever the
+    /// object/int shape arrived.
+    let status: LichessStatus?
     let variant: LichessVariant
     let fen: String?
     let turns: Int?
@@ -416,9 +421,14 @@ struct LichessVariant: Sendable, Decodable, Equatable {
     let short: String?
 }
 
-/// Game status as Lichess models it. Decodes from either the integer code
-/// (10/20/25/...) or the string label (`mate`, `resign`, ...). Lichess
-/// uses the string form across the Board API and event stream.
+/// Game status as Lichess models it. Lichess is inconsistent about the
+/// wire shape: the Board game stream sends the string label ("mate",
+/// "resign", …), the event stream (`gameStart` / `gameFinish`) and
+/// `/api/account/playing` send an OBJECT `{"id":20,"name":"started"}`,
+/// and some game JSON sends the bare integer id. The custom decoder
+/// accepts all three — the old string-only decoder made every
+/// `gameStart` event line undecodable (and NDJSON silently drops bad
+/// lines), which is why paired online matches never opened.
 enum LichessStatus: String, Sendable, Decodable, Equatable {
     case created
     case started
@@ -433,6 +443,58 @@ enum LichessStatus: String, Sendable, Decodable, Equatable {
     case noStart
     case unknownFinish
     case variantEnd
+
+    init(from decoder: Decoder) throws {
+        // 1) Bare string name — Board game stream shape.
+        // 2) Bare integer id — legacy game JSON shape.
+        if let single = try? decoder.singleValueContainer() {
+            if let name = try? single.decode(String.self) {
+                // Unknown future labels degrade to a finished state
+                // instead of killing the whole event line.
+                self = LichessStatus(rawValue: name) ?? .unknownFinish
+                return
+            }
+            if let id = try? single.decode(Int.self) {
+                self = LichessStatus.fromID(id)
+                return
+            }
+        }
+        // 3) Object {id, name} — event stream + account/playing shape.
+        if let keyed = try? decoder.container(keyedBy: ObjectKeys.self) {
+            if let name = try? keyed.decode(String.self, forKey: .name),
+               let status = LichessStatus(rawValue: name) {
+                self = status
+                return
+            }
+            if let id = try? keyed.decode(Int.self, forKey: .id) {
+                self = LichessStatus.fromID(id)
+                return
+            }
+        }
+        self = .unknownFinish
+    }
+
+    private enum ObjectKeys: String, CodingKey { case id, name }
+
+    /// Lichess's numeric status ids (scalachess `Status.scala`).
+    private static func fromID(_ id: Int) -> LichessStatus {
+        switch id {
+        case 10: return .created
+        case 20: return .started
+        case 25: return .aborted
+        case 30: return .mate
+        case 31: return .resign
+        case 32: return .stalemate
+        case 33: return .timeout
+        case 34: return .draw
+        case 35: return .outoftime
+        case 36: return .cheat
+        case 37: return .noStart
+        case 38: return .unknownFinish
+        case 60: return .variantEnd
+        default: return .unknownFinish
+        }
+    }
 
     /// True for any state where the game is no longer in progress.
     var isFinished: Bool {

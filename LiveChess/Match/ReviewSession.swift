@@ -155,7 +155,8 @@ final class ReviewSession: MatchSession {
     /// analysis — local Stockfish supplies classifications on demand.
     init(localMoves moves: [Move],
          status: GameStatus,
-         rules: any RulesEngine = ChessKitRulesEngine()) {
+         rules: any RulesEngine = ChessKitRulesEngine(),
+         precomputed: [MoveAnalysis] = []) {
         var positions: [Position] = [.standardStart]
         for m in moves {
             do {
@@ -175,6 +176,14 @@ final class ReviewSession: MatchSession {
             self.resultLine = (w == .white) ? "1 – 0" : "0 – 1"
         } else {
             self.resultLine = "½ – ½"
+        }
+        // Seed from the live in-game analyzer (same engine, same
+        // depth — interchangeable with the batch). A partial prefix
+        // is fine: `startAnalysisIfNeeded` finishes only the missing
+        // suffix instead of re-analyzing the whole game.
+        if !precomputed.isEmpty, precomputed.count <= moves.count {
+            self.analysisResults = precomputed
+            print("[Review] Seeded \(precomputed.count)/\(moves.count) plies from live in-game analysis.")
         }
     }
 
@@ -383,10 +392,9 @@ final class ReviewSession: MatchSession {
     func startAnalysisIfNeeded() {
         guard analyzer == nil, !plyMoves.isEmpty else { return }
 
-        // Cloud path: Lichess already populated `analysisResults` in
-        // init from `game.analysis`. Nothing else to do — the HUD
-        // reads straight from that array.
-        if !analysisResults.isEmpty { return }
+        // Already complete: Lichess cloud evals populated in init, OR
+        // the live in-game analyzer covered every ply. Nothing to do.
+        if analysisResults.count >= plyMoves.count { return }
 
         // Fallback: whole-game atomic batch at depth 15. We collect
         // every `MoveAnalysis` off-screen, then swap into
@@ -398,19 +406,30 @@ final class ReviewSession: MatchSession {
         // ~3% at ~2–3× cost per ply. Median cp error vs cloud is
         // ~20cp at either depth — the win comes from the tactical
         // tail, not the median.
-        print("[Review] Starting local Stockfish batch — \(plyMoves.count) plies, depth 15")
+        // Suffix-only batch: when the live in-game analyzer seeded a
+        // prefix, pick up exactly where it stopped (same depth, same
+        // MultiPV — interchangeable results). Fresh games analyze the
+        // whole list as before.
+        let seed = analysisResults
+        let seedCount = seed.count
+        let remaining = Array(plyMoves[seedCount...])
+        let startPosition = positionsByPly.indices.contains(seedCount)
+            ? positionsByPly[seedCount]
+            : .standardStart
+        print("[Review] Starting local Stockfish batch — \(remaining.count)/\(plyMoves.count) plies (live pass covered \(seedCount)), depth 15")
         let started = Date()
         let analyzer = GameAnalyzer(multiPV: 3)
         self.analyzer = analyzer
         isAnalyzing = true
         analysisTask = Task { @MainActor in
             var collected: [MoveAnalysis] = []
-            collected.reserveCapacity(plyMoves.count)
+            collected.reserveCapacity(remaining.count)
             do {
                 let stream = await analyzer.analyzeStream(
-                    startPosition: .standardStart,
-                    moves: plyMoves,
-                    depth: 15
+                    startPosition: startPosition,
+                    moves: remaining,
+                    depth: 15,
+                    firstPlyIndex: seedCount
                 )
                 for try await m in stream {
                     if Task.isCancelled { break }
@@ -421,13 +440,24 @@ final class ReviewSession: MatchSession {
                 print("[Review] Local Stockfish failed: \(error) (collected \(collected.count) plies before failure)")
             }
             if !Task.isCancelled, !collected.isEmpty {
-                self.analysisResults = collected
+                self.analysisResults = seed + collected
                 self.emitReviewHighlight()
-            } else if !Task.isCancelled {
+            } else if !Task.isCancelled, seed.isEmpty {
                 print("[Review] No classifications produced — panel will show empty state.")
             }
             self.isAnalyzing = false
         }
+    }
+
+    /// Re-runs the local Stockfish batch after a failure (engine
+    /// hiccup, app backgrounded mid-stream, …). No-op while a run is
+    /// already in flight or results already exist.
+    func retryAnalysis() {
+        guard !isAnalyzing, analysisResults.count < plyMoves.count else { return }
+        analysisTask?.cancel()
+        analysisTask = nil
+        analyzer = nil
+        startAnalysisIfNeeded()
     }
 
     func tearDown() {

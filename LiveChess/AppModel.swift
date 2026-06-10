@@ -92,13 +92,67 @@ class AppModel {
     /// at first appearance to decide whether to wire up the local
     /// `MatchCoordinator` or the remote `LichessMatchSession`. Cleared
     /// when the immersive space dismisses.
-    var activeSession: ActiveSession?
+    var activeSession: ActiveSession? {
+        didSet {
+            // Live in-game analysis: start (or restart) the analyzer
+            // whenever a playable game becomes active so it works
+            // through the moves WHILE the game is played — by the
+            // time the user taps "Analyze Game" the classifications
+            // are mostly (often fully) done. Identical quality to the
+            // post-game batch: same GameAnalyzer, same depth/MultiPV.
+            switch activeSession {
+            case .local(let coordinator):
+                startLiveAnalysis { coordinator.match.moves }
+            case .online(let session):
+                startLiveAnalysis { session.match.moves }
+            case .puzzle, .review, .none:
+                // Keep accumulated results (the review seeds from
+                // them via `harvestLiveAnalysis`) but stop polling a
+                // session that's going away.
+                liveAnalysis?.stopFeeding()
+            }
+        }
+    }
+
+    /// In-flight live analyzer for the current game. See
+    /// `LiveGameAnalysis` for the quality/threading contract.
+    private(set) var liveAnalysis: LiveGameAnalysis?
+
+    private func startLiveAnalysis(
+        _ moves: @escaping @MainActor () -> [Move]
+    ) {
+        liveAnalysis?.shutdown()
+        let live = LiveGameAnalysis()
+        live.startFeeding(moves)
+        liveAnalysis = live
+    }
+
+    /// Hands the live results to a review (validated against the
+    /// final move list) and retires the live analyzer.
+    func harvestLiveAnalysis(for moves: [Move]) -> [MoveAnalysis] {
+        guard let live = liveAnalysis else { return [] }
+        let seed = live.validatedResults(for: moves)
+        live.shutdown()
+        liveAnalysis = nil
+        return seed
+    }
 
     /// Set when the user taps "Find opponent" — drives the matchmaking
     /// HUD that floats over the empty board while we wait for Lichess
     /// to pair us. Cleared when a real game arrives (which transitions
     /// the immersive into `.online` mode) or the user cancels.
     var matchmaking: MatchmakingState?
+
+    /// Lobby-side Lichess controller (event stream, seeks, challenges).
+    /// Owned HERE — not as `LobbyView` @State — because the main menu
+    /// window is DISMISSED while the immersive space is open. During
+    /// Quick Pair the seek + event stream must outlive that window: if
+    /// the view owned the controller, it deallocated on window
+    /// dismissal and the `gameStart` event arrived with nobody
+    /// listening — Lichess had paired the match, but the app never
+    /// started it ("Finding opponent…" forever). Created lazily by
+    /// `LobbyView.ensureLichessLobby()`, torn down on sign-out.
+    var lichessLobby: LichessLobbyController?
 }
 
 /// Describes an in-flight matchmaking attempt — what the user picked

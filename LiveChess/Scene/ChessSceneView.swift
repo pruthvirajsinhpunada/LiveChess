@@ -334,14 +334,32 @@ struct ChessSceneView: View {
                 // the game session is built; then this branch becomes
                 // false and the per-session HUD below takes over.
                 if let mm = appModel.matchmaking {
-                    MatchmakingHUDView(state: mm) {
-                        // Cancel — tear down the seek + immersive.
-                        appModel.matchmaking = nil
-                        appModel.immersiveSpaceState = .inTransition
-                        Task { @MainActor in
-                            await dismissImmersiveSpace()
+                    MatchmakingHUDView(
+                        state: mm,
+                        onCancel: {
+                            // Cancel — tear down the seek (server-side
+                            // too: clearing only the HUD left the seek
+                            // running, and a game could pair into
+                            // nowhere) + the immersive.
+                            appModel.lichessLobby?.cancelSeek()
+                            appModel.matchmaking = nil
+                            appModel.immersiveSpaceState = .inTransition
+                            Task { @MainActor in
+                                await dismissImmersiveSpace()
+                            }
+                        },
+                        onSwitchToCasual: {
+                            // Re-enter the lobby as casual with the
+                            // same time control; refresh the HUD chip.
+                            appModel.lichessLobby?.reseekCasual()
+                            appModel.matchmaking = MatchmakingState(
+                                timeControlLabel: mm.timeControlLabel,
+                                rated: false,
+                                selfUsername: mm.selfUsername,
+                                selfRating: mm.selfRating
+                            )
                         }
-                    }
+                    )
                 } else if let session = appModel.activeSession {
                     switch session {
                     case .local(let coord):

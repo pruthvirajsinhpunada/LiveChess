@@ -24,6 +24,17 @@ final class PuzzleProgressStore {
     private static let glickoKey       = "LiveChess.PuzzleGlicko.v1"
     private static let dailyDoneAtKey  = "LiveChess.DailyCompletedAt.v1"
 
+    /// Profile namespace — every key is suffixed with the signed-in
+    /// Lichess user id so EACH ACCOUNT carries its own puzzle rating
+    /// and solve history (the same way lichess.org rates per
+    /// account). "local" = signed out; it maps to the legacy
+    /// un-suffixed keys so pre-existing progress is preserved.
+    private(set) var accountID: String = "local"
+
+    private func key(_ base: String) -> String {
+        accountID == "local" ? base : "\(base).\(accountID)"
+    }
+
     /// Puzzles the user solved correctly (first move right).
     private(set) var solvedIDs: Set<String>
     /// Puzzles the user failed (wrong first move) — Lichess
@@ -43,9 +54,28 @@ final class PuzzleProgressStore {
     init() {
         self.solvedIDs = Self.restoreSet(forKey: Self.solvedKey)
         self.failedIDs = Self.restoreSet(forKey: Self.failedKey)
-        self.rating    = Self.restoreRating() ?? .initial
+        self.rating    = Self.restoreRating(forKey: Self.glickoKey) ?? .initial
         self.lastRatingDelta = nil
         self.lastDailyCompletedAt = Self.restoreDate(forKey: Self.dailyDoneAtKey)
+    }
+
+    // MARK: - Account switching
+
+    /// Loads the puzzle profile for the given Lichess username (nil =
+    /// signed out → "local"). Each account's rating, solve history,
+    /// and daily-puzzle lock live in their own namespaced keys; a
+    /// fresh account starts at `.initial` and is then seeded from its
+    /// own Lichess puzzle perf via `seedFromLichess`. No-op when the
+    /// account hasn't changed.
+    func switchAccount(_ lichessUsername: String?) {
+        let id = lichessUsername?.lowercased() ?? "local"
+        guard id != accountID else { return }
+        accountID = id
+        solvedIDs = Self.restoreSet(forKey: key(Self.solvedKey))
+        failedIDs = Self.restoreSet(forKey: key(Self.failedKey))
+        rating    = Self.restoreRating(forKey: key(Self.glickoKey)) ?? .initial
+        lastRatingDelta = nil
+        lastDailyCompletedAt = Self.restoreDate(forKey: key(Self.dailyDoneAtKey))
     }
 
     // MARK: - Read
@@ -99,7 +129,7 @@ final class PuzzleProgressStore {
             persistRating()
         }
         solvedIDs.insert(puzzleID)
-        persist(solvedIDs, forKey: Self.solvedKey)
+        persist(solvedIDs, forKey: key(Self.solvedKey))
     }
 
     func recordFail(puzzleID: String,
@@ -118,7 +148,7 @@ final class PuzzleProgressStore {
             persistRating()
         }
         failedIDs.insert(puzzleID)
-        persist(failedIDs, forKey: Self.failedKey)
+        persist(failedIDs, forKey: key(Self.failedKey))
     }
 
     /// Legacy entry point — older callers wired only `markSolved(id)`
@@ -128,7 +158,7 @@ final class PuzzleProgressStore {
     func markSolved(_ id: String) {
         guard !isAttempted(id) else { return }
         solvedIDs.insert(id)
-        persist(solvedIDs, forKey: Self.solvedKey)
+        persist(solvedIDs, forKey: key(Self.solvedKey))
     }
 
     /// One-shot per day: marks the daily puzzle as attempted (solve
@@ -138,7 +168,7 @@ final class PuzzleProgressStore {
         let now = Date()
         lastDailyCompletedAt = now
         if let data = try? JSONEncoder().encode(now) {
-            UserDefaults.standard.set(data, forKey: Self.dailyDoneAtKey)
+            UserDefaults.standard.set(data, forKey: key(Self.dailyDoneAtKey))
         }
     }
 
@@ -168,10 +198,10 @@ final class PuzzleProgressStore {
         rating = .initial
         lastRatingDelta = nil
         lastDailyCompletedAt = nil
-        persist(solvedIDs, forKey: Self.solvedKey)
-        persist(failedIDs, forKey: Self.failedKey)
+        persist(solvedIDs, forKey: key(Self.solvedKey))
+        persist(failedIDs, forKey: key(Self.failedKey))
         persistRating()
-        UserDefaults.standard.removeObject(forKey: Self.dailyDoneAtKey)
+        UserDefaults.standard.removeObject(forKey: key(Self.dailyDoneAtKey))
     }
 
     // MARK: - Persistence
@@ -183,8 +213,8 @@ final class PuzzleProgressStore {
         return (try? JSONDecoder().decode(Set<String>.self, from: data)) ?? []
     }
 
-    private static func restoreRating() -> Glicko2.Rating? {
-        guard let data = UserDefaults.standard.data(forKey: glickoKey) else {
+    private static func restoreRating(forKey key: String) -> Glicko2.Rating? {
+        guard let data = UserDefaults.standard.data(forKey: key) else {
             return nil
         }
         return try? JSONDecoder().decode(Glicko2.Rating.self, from: data)
@@ -204,6 +234,6 @@ final class PuzzleProgressStore {
 
     private func persistRating() {
         guard let data = try? JSONEncoder().encode(rating) else { return }
-        UserDefaults.standard.set(data, forKey: Self.glickoKey)
+        UserDefaults.standard.set(data, forKey: key(Self.glickoKey))
     }
 }

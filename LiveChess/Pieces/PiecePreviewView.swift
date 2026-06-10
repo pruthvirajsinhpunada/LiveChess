@@ -22,6 +22,9 @@ struct PiecePreviewView: View {
     /// spinning child; the `onChange` handlers reach into it directly
     /// to swap the piece without traversing the scene graph.
     @State private var turntable = Entity()
+    /// Stage root — kept around so the async-generated uniform IBL
+    /// can attach to it after the scene is built.
+    @State private var stage = Entity()
 
     /// `false` until `PieceMeshFactory.preload()` finishes loading the
     /// 12 piece USDZ templates from the bundle. Until then any call
@@ -36,6 +39,7 @@ struct PiecePreviewView: View {
             RealityView { content in
                 content.add(makeStage(turntable: turntable))
                 if assetsReady { installPiece(in: turntable) }
+                applyUniformLight()
             } update: { _ in
                 // Drive the spin from wall-clock time so it stays smooth
                 // regardless of how often SwiftUI re-evaluates body.
@@ -67,6 +71,11 @@ struct PiecePreviewView: View {
             await PieceMeshFactory.preload()
             assetsReady = true
             installPiece(in: turntable)
+            // Uniform IBL — the previous directional fill + warm spot
+            // blew the piece out to paper-white. Statically cached, so
+            // the `.id(previewIdentity)` rebuilds re-attach instantly.
+            _ = await PreviewLighting.uniformEnvironment()
+            applyUniformLight()
         }
         .onChange(of: material) { _, _ in
             turntable.children
@@ -115,7 +124,7 @@ struct PiecePreviewView: View {
         // and bottom. Settings shows two previews side-by-side in a
         // shorter frame, so keep the silhouette comfortably inside
         // the card instead of letting the base fall past the bottom.
-        piece.scale = SIMD3<Float>(repeating: 0.96)
+        piece.scale = SIMD3<Float>(repeating: 1.5)
         turntable.addChild(piece)
 
         // Pieces author their origin at the base, so tall silhouettes
@@ -125,63 +134,65 @@ struct PiecePreviewView: View {
         let bounds = piece.visualBounds(relativeTo: turntable)
         piece.position.y -= bounds.center.y
         piece.position.y += 0.005
+
+        applyUniformLight()
     }
 
-    /// The stage holds: pedestal disc, ambient + key lights, and the
-    /// turntable child that spins the piece. Lights live on the stage
-    /// (not the turntable) so they stay still as the piece rotates,
-    /// which is what makes the highlight roll across the surface.
+    /// Attaches the shared uniform environment (see `PreviewLighting`)
+    /// to the stage and marks the piece as a receiver. Dimmed
+    /// (exponent −0.5 ≈ 0.7×) so it acts as an ambient base under the
+    /// directional key/fill — full strength flattened the piece into
+    /// a paper cut-out. Idempotent.
+    private func applyUniformLight() {
+        guard let env = PreviewLighting.cachedEnvironment else { return }
+        PreviewLighting.apply(env,
+                              lightRoot: stage,
+                              subjectRoot: turntable,
+                              intensityExponent: -0.5)
+    }
+
+    /// Showroom rig: dimmed uniform ambient (no black shadows, no
+    /// blow-out) + a warm KEY from the upper right that models the
+    /// curves + a faint cool FILL from the left that keeps the shadow
+    /// side reading as form, not silhouette. The highlight rolls as
+    /// the turntable spins. Total exposure stays well below the old
+    /// 620-lux + 22k-spot combo that bleached everything.
     private func makeStage(turntable: Entity) -> Entity {
-        let stage = Entity()
         stage.name = "PreviewStage"
         // Window-2D RealityViews have a shallow viewing volume; pull
         // the stage close to the window plane so the piece lands
-        // visibly inside the 320 pt frame instead of vanishing into
-        // the far clip.
-        stage.position = SIMD3<Float>(0, -0.005, -0.10)
+        // visibly inside the frame instead of vanishing into the far
+        // clip. Lowered slightly so tall silhouettes stay clear of
+        // the panel's top edge, and nudged left — at x=0 the piece
+        // projected right of the preview column's centre.
+        stage.position = SIMD3<Float>(-0.04, -0.008, -0.10)
 
-        // Soft daylight fill — RealityView in 2D windows doesn't
-        // apply IBL automatically; without an explicit fill the
-        // shadow side reads as pitch black. Dimmed (1500 → 800) so
-        // the preview looks closer to a calm showroom and farther
-        // from a stage spotlight.
+        let key = DirectionalLightComponent(
+            color: .init(red: 1.0, green: 0.95, blue: 0.85, alpha: 1.0),
+            intensity: 650
+        )
+        let keyEntity = Entity()
+        keyEntity.components.set(key)
+        keyEntity.look(
+            at: .zero,
+            from: SIMD3<Float>(0.35, 0.45, 0.40),
+            relativeTo: stage
+        )
+        stage.addChild(keyEntity)
+
         let fill = DirectionalLightComponent(
-            color: .init(red: 0.92, green: 0.94, blue: 1.0, alpha: 1.0),
-            intensity: 620
+            color: .init(red: 0.85, green: 0.90, blue: 1.0, alpha: 1.0),
+            intensity: 220
         )
         let fillEntity = Entity()
         fillEntity.components.set(fill)
         fillEntity.look(
             at: .zero,
-            from: SIMD3<Float>(-0.30, 0.40, 0.20),
+            from: SIMD3<Float>(-0.45, 0.20, 0.30),
             relativeTo: stage
         )
         stage.addChild(fillEntity)
 
-        // Warm key spot from front-right — matches the in-game
-        // virtual room key colour temperature so the preview predicts
-        // the on-table appearance. Dropped 80K → 35K and the cone
-        // widened so the highlight rolls more gently across the
-        // surface instead of clipping the glossy / metal presets.
-        var key = SpotLightComponent(
-            color: .init(red: 1.0, green: 0.92, blue: 0.78, alpha: 1.0),
-            intensity: 22_000
-        )
-        key.attenuationRadius = 1.2
-        key.innerAngleInDegrees = 50
-        key.outerAngleInDegrees = 110
-        let keyEntity = Entity()
-        keyEntity.components.set(key)
-        keyEntity.look(
-            at: SIMD3<Float>(0, 0.075, 0),
-            from: SIMD3<Float>(0.20, 0.35, 0.25),
-            relativeTo: stage
-        )
-        stage.addChild(keyEntity)
-
-        // Turntable: the piece rides on this; siblings (lights) stay
-        // still so the highlight rolls across the surface as the
-        // piece spins.
         turntable.name = "Turntable"
         stage.addChild(turntable)
 

@@ -11,9 +11,11 @@ import RealityKit
 @MainActor
 struct HeroKingView: View {
 
-    /// Spinning parent the king rides on; lights stay on the stage so
-    /// the highlight travels across the surface as it turns.
+    /// Spinning parent the king rides on.
     @State private var turntable = Entity()
+    /// Stage root — kept so the async-generated uniform IBL can be
+    /// attached after the scene is built.
+    @State private var stage = Entity()
     @State private var assetsReady = false
 
     var body: some View {
@@ -21,6 +23,7 @@ struct HeroKingView: View {
             RealityView { content in
                 content.add(makeStage(turntable: turntable))
                 if assetsReady { installKing(in: turntable) }
+                applyUniformLight()
             } update: { _ in
                 // 22 s / revolution — a stately museum turntable, slow
                 // enough to read as ambient, fast enough to keep the
@@ -37,6 +40,11 @@ struct HeroKingView: View {
             await PieceMeshFactory.preload()
             assetsReady = true
             installKing(in: turntable)
+            // Uniform IBL (shared with the Customize previews) — the
+            // old warm key spot + cool fill striped a hard white
+            // highlight across the king.
+            _ = await PreviewLighting.uniformEnvironment()
+            applyUniformLight()
         }
         .accessibilityHidden(true)   // decorative
     }
@@ -46,11 +54,23 @@ struct HeroKingView: View {
             .filter { $0.name == "HeroKing" }
             .forEach { $0.removeFromParent() }
 
-        // nil override → keep the USDZ's baked gold material, which is
-        // exactly the look we want for the hero.
+        // Brand-bronze metal (#C3AE8E — the Play Now / accent colour)
+        // so the hero king carries the app's theme instead of the
+        // USDZ's pale baked material. Mid metallic + low-mid
+        // roughness reads as brushed bronze: enough diffuse to keep
+        // form under the ambient, enough specular for the key light
+        // to roll a living highlight across it as it spins.
+        var bronze = PhysicallyBasedMaterial()
+        bronze.baseColor = .init(tint: UIColor(
+            red: 0.765, green: 0.682, blue: 0.557, alpha: 1.0   // #C3AE8E
+        ))
+        bronze.metallic = .init(floatLiteral: 0.85)
+        bronze.roughness = .init(floatLiteral: 0.30)
+        bronze.specular = .init(floatLiteral: 0.6)
+
         let king = PieceMeshFactory.makeEntity(
             for: Piece(.king, .white),
-            materialOverride: nil
+            materialOverride: bronze
         )
         king.name = "HeroKing"
         king.position = .zero
@@ -66,43 +86,51 @@ struct HeroKingView: View {
         king.position.y -= bounds.center.y
     }
 
-    /// Pedestal-free stage: a warm bronze key from the front-right and
-    /// a cool fill from the left so the gold reads as metal rather than
-    /// a flat yellow. 2-D-window RealityViews get no automatic IBL, so
-    /// without explicit lights the shadow side is pitch black.
+    /// Attaches the shared uniform environment (see `PreviewLighting`)
+    /// to the stage and marks the king as a receiver. Dimmed so it's
+    /// the ambient base under the key/fill — metal needs directional
+    /// light to look like metal; uniform light alone reads as putty.
+    private func applyUniformLight() {
+        guard let env = PreviewLighting.cachedEnvironment else { return }
+        PreviewLighting.apply(env,
+                              lightRoot: stage,
+                              subjectRoot: turntable,
+                              intensityExponent: -0.4)
+    }
+
+    /// Hero rig for the bronze king: dimmed uniform ambient + warm
+    /// key from the upper right + faint cool fill from the left. The
+    /// key intensity is moderate — the old 28k spot striped a hard
+    /// white band across the piece; this rolls a soft bronze sheen.
     private func makeStage(turntable: Entity) -> Entity {
-        let stage = Entity()
         stage.name = "HeroStage"
         stage.position = SIMD3<Float>(0, -0.01, -0.18)
 
+        let key = DirectionalLightComponent(
+            color: .init(red: 1.0, green: 0.93, blue: 0.80, alpha: 1.0),
+            intensity: 800
+        )
+        let keyEntity = Entity()
+        keyEntity.components.set(key)
+        keyEntity.look(
+            at: .zero,
+            from: SIMD3<Float>(0.40, 0.50, 0.40),
+            relativeTo: stage
+        )
+        stage.addChild(keyEntity)
+
         let fill = DirectionalLightComponent(
-            color: .init(red: 0.86, green: 0.90, blue: 1.0, alpha: 1.0),
-            intensity: 700
+            color: .init(red: 0.85, green: 0.90, blue: 1.0, alpha: 1.0),
+            intensity: 240
         )
         let fillEntity = Entity()
         fillEntity.components.set(fill)
         fillEntity.look(
             at: .zero,
-            from: SIMD3<Float>(-0.40, 0.45, 0.30),
+            from: SIMD3<Float>(-0.45, 0.25, 0.30),
             relativeTo: stage
         )
         stage.addChild(fillEntity)
-
-        var key = SpotLightComponent(
-            color: .init(red: 1.0, green: 0.91, blue: 0.74, alpha: 1.0),
-            intensity: 28_000
-        )
-        key.attenuationRadius = 1.6
-        key.innerAngleInDegrees = 45
-        key.outerAngleInDegrees = 115
-        let keyEntity = Entity()
-        keyEntity.components.set(key)
-        keyEntity.look(
-            at: SIMD3<Float>(0, 0.10, 0),
-            from: SIMD3<Float>(0.28, 0.45, 0.35),
-            relativeTo: stage
-        )
-        stage.addChild(keyEntity)
 
         turntable.name = "HeroTurntable"
         stage.addChild(turntable)

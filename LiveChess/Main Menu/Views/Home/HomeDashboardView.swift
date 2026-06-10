@@ -53,7 +53,10 @@ struct HomeDashboardView: View {
 
     private var topBar: some View {
         HStack(spacing: Chess.Space.m) {
-            BrandMark(.wordmark(size: 30))
+            // 40 pt (was 30): the wordmark read undersized against
+            // the hero headline below it. The coin logo scales with
+            // the type automatically.
+            BrandMark(.wordmark(size: 40))
 
             Spacer(minLength: Chess.Space.m)
 

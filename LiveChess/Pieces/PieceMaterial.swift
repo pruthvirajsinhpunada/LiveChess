@@ -76,12 +76,25 @@ struct PieceMaterial: Equatable, Sendable, Codable {
 
     // MARK: - Board defaults
     //
-    // Match the legacy `ChessMaterials` board palette so existing
-    // users see no visual change after this update lands.
+    // Brand-themed board — derived from the Chess+ palette in
+    // `Theme.swift` so the default playing surface matches the app
+    // chrome: light squares = the cream marble sampled from the app
+    // icon (`Chess.Palette.cream` ≈ 0.93/0.90/0.83), dark squares =
+    // a deepened take on the bronze accent (#C3AE8E), frame = the
+    // same bronze pushed near-espresso so it rims the board the way
+    // bronze strokes rim the UI cards. Tints multiply the oak /
+    // walnut square textures, so these read as "toned wood", not
+    // flat paint.
 
-    static let defaultLightSquareColor: PieceColor = .init(0.90, 0.82, 0.66)
-    static let defaultDarkSquareColor:  PieceColor = .init(0.36, 0.23, 0.16)
-    static let defaultFrameColor:       PieceColor = .init(0.20, 0.12, 0.07)
+    // NOTE on values: these are TINTS multiplied onto the wood
+    // textures (oak light squares, walnut dark squares + frame), so
+    // they must be brighter than the target colour — the texture
+    // supplies its own darkness. The earlier darker tints compounded
+    // with the walnut into near-black squares that didn't look like
+    // the brand bronze at all.
+    static let defaultLightSquareColor: PieceColor = .init(0.93, 0.90, 0.83)
+    static let defaultDarkSquareColor:  PieceColor = .init(0.74, 0.63, 0.48)
+    static let defaultFrameColor:       PieceColor = .init(0.36, 0.28, 0.20)
 
     // MARK: - Codable (custom for backwards compatibility)
     //

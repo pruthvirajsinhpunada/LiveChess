@@ -99,9 +99,15 @@ struct LocalMatchHUDView: View {
                         // at appearance, so we use the same dismiss→reopen
                         // dance the env switcher uses (pendingReopen keeps the
                         // session alive across the rebuild).
+                        // Live in-game analysis seeds the review — by
+                        // the time the game ends most plies are
+                        // classified, so it opens (nearly) instantly.
                         let review = ReviewSession(
                             localMoves: coordinator.match.moves,
-                            status: coordinator.match.status
+                            status: coordinator.match.status,
+                            precomputed: appModel.harvestLiveAnalysis(
+                                for: coordinator.match.moves
+                            )
                         )
                         appModel.activeSession = .review(review)
                         Task {
@@ -551,10 +557,19 @@ private struct GameOverPopupView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // ── Top: result emoji + headline ──────────────────────────
+            // ── Top: result mark + headline ───────────────────────────
             VStack(spacing: 12) {
-                Text(resultEmoji)
-                    .font(.system(size: 64))
+                // SF symbol, not an emoji — the 💀/🏆 glyphs clashed
+                // with the app's restrained bronze/serif identity.
+                Image(systemName: resultSymbol)
+                    .font(.system(size: 44, weight: .semibold))
+                    .foregroundStyle(resultColor)
+                    .frame(width: 84, height: 84)
+                    .background(.thinMaterial, in: Circle())
+                    .overlay(
+                        Circle().strokeBorder(resultColor.opacity(0.4),
+                                              lineWidth: 1)
+                    )
 
                 Text(resultHeadline)
                     .font(.largeTitle.weight(.bold))
@@ -643,11 +658,11 @@ private struct GameOverPopupView: View {
         return winner == human ? .won : .lost
     }
 
-    private var resultEmoji: String {
+    private var resultSymbol: String {
         switch outcome {
-        case .won:  "🏆"
-        case .lost: "💀"
-        case .draw: "🤝"
+        case .won:  "crown.fill"
+        case .lost: "flag.fill"
+        case .draw: "equal.circle.fill"
         }
     }
 

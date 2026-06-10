@@ -10,25 +10,28 @@ struct ReviewMovesPanelView: View {
 
     @Bindable var session: ReviewSession
 
-    @Environment(\.openURL) private var openURL
-
     var body: some View {
         VStack(alignment: .leading, spacing: Chess.Space.s) {
             header
             Divider()
             if session.isAnalyzing {
-                // While the depth-10 batch is running we suppress the
-                // moves list and the "request on Lichess" banner —
-                // both would render un-classified rows that flip when
-                // the atomic swap lands. Single spinner reads cleaner.
+                // While the batch is running we suppress the moves
+                // list and the retry banner — both would render
+                // un-classified rows that flip when the atomic swap
+                // lands. Single spinner reads cleaner.
                 analysingPlaceholder
             } else {
                 if session.analysisResults.isEmpty {
-                    requestAnalysisBanner
+                    retryAnalysisBanner
                 }
                 movesList
             }
         }
+        // Belt-and-braces kickoff: the HUD's onAppear normally starts
+        // the batch, but if this panel mounts first (or the HUD's
+        // appear was missed in a scene rebuild) the analysis must
+        // still run — in-app, never via lichess.org.
+        .onAppear { session.startAnalysisIfNeeded() }
         .padding(Chess.Space.m)
         .frame(width: 320, height: 460, alignment: .top)
         .background(.regularMaterial, in:
@@ -57,15 +60,11 @@ struct ReviewMovesPanelView: View {
         }
     }
 
-    /// Counter line under the title — communicates whether Lichess
-    /// returned per-ply analysis for the game or not, so an empty
-    /// panel doesn't look like a loading state.
+    /// Counter line under the title. Classification source is the
+    /// in-app Stockfish (or instant Lichess cloud evals when a fetched
+    /// game already carries them) — either way, just count the plies.
     private var subtitleText: String {
-        let plies = session.plyMoves.count
-        if session.analysisResults.isEmpty {
-            return "\(plies) plies · no Lichess analysis"
-        }
-        return "\(plies) plies"
+        "\(session.plyMoves.count) plies"
     }
 
     /// Placeholder shown in place of the moves list while the depth-10
@@ -93,17 +92,15 @@ struct ReviewMovesPanelView: View {
     /// to the Lichess game page so the user can click "Request a
     /// computer analysis" — after which our next fetch will pick up
     /// the per-ply data automatically.
-    private var requestAnalysisBanner: some View {
+    private var retryAnalysisBanner: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("This game doesn't have deep Lichess analysis yet.")
+            Text("Move classifications aren't ready — the in-app Stockfish analysis didn't complete.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Button {
-                if let url = URL(string: "https://lichess.org/\(session.gameId)") {
-                    openURL(url)
-                }
+                session.retryAnalysis()
             } label: {
-                Label("Request analysis on Lichess", systemImage: "arrow.up.right.square")
+                Label("Analyze with Stockfish", systemImage: "arrow.clockwise")
                     .font(.caption.weight(.semibold))
             }
             .buttonStyle(.bordered)

@@ -139,20 +139,31 @@ actor GameAnalyzer {
     private let multiPV: Int
     private let engine: Engine
     private var isStarted = false
+    /// Explicit thread budget. nil → all spare cores (review batch).
+    /// The live in-game analyzer passes a smaller budget so gameplay +
+    /// rendering keep headroom — thread count changes SPEED only,
+    /// never the search depth or its results.
+    private let preferredCoreCount: Int?
 
-    init(multiPV: Int = 3) {
+    init(multiPV: Int = 3, coreCount: Int? = nil) {
         self.multiPV = multiPV
+        self.preferredCoreCount = coreCount
         self.engine = Engine(type: .stockfish)
     }
 
     /// Streams `MoveAnalysis` records ply by ply. Caller iterates and
     /// updates the UI as each ply lands; the stream completes when
     /// every ply has been analyzed or the task is cancelled.
+    /// `firstPlyIndex` offsets the emitted `MoveAnalysis.id`s — used
+    /// when analyzing a SUFFIX of a game (live in-game analysis, or a
+    /// review finishing the plies the live pass didn't reach) so ids
+    /// keep matching absolute ply numbers.
     func analyzeStream(
         startPosition: Position = .standardStart,
         moves: [Move],
         depth: Int = 20,
-        rules: any RulesEngine = ChessKitRulesEngine()
+        rules: any RulesEngine = ChessKitRulesEngine(),
+        firstPlyIndex: Int = 0
     ) -> AsyncThrowingStream<MoveAnalysis, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -160,6 +171,15 @@ actor GameAnalyzer {
                     try await ensureStarted()
                     var position = startPosition
                     let book = OpeningBook.shared
+                    // Cross-ply search cache: the "position AFTER the
+                    // played move" search at ply N is the SAME search
+                    // as "position BEFORE the move" at ply N+1 (same
+                    // FEN, same depth, same MultiPV). Reusing it
+                    // removes one full depth-15 search for every move
+                    // that wasn't in the engine's top-N — which is
+                    // precisely the moves (inaccuracies/blunders)
+                    // that used to cost double. Output is identical.
+                    var cachedLines: (fen: String, lines: [AnalysisLine])?
                     for (ply, move) in moves.enumerated() {
                         try Task.checkCancellation()
                         let mover = position.sideToMove
@@ -177,7 +197,7 @@ actor GameAnalyzer {
                         // typical openings.
                         if let entry = book.lookup(positionAfter) {
                             let analysis = MoveAnalysis(
-                                id: ply,
+                                id: firstPlyIndex + ply,
                                 san: move.uci,
                                 playedUCI: playedUCI,
                                 mover: mover,
@@ -191,22 +211,35 @@ actor GameAnalyzer {
                             )
                             continuation.yield(analysis)
                             position = positionAfter
+                            // A skipped engine call means whatever we
+                            // had cached no longer matches `position`.
+                            cachedLines = nil
                             continue
                         }
 
                         // Evaluate the position BEFORE the move with
                         // MultiPV=N — gives us the top-N candidates +
                         // their scores, all from `position.sideToMove`'s
-                        // POV at depth `depth`.
-                        let lines = try await evaluate(
-                            fen: position.fen, depth: depth
-                        )
+                        // POV at depth `depth`. Reuses the previous
+                        // ply's after-move search when available (same
+                        // FEN → same search).
+                        let lines: [AnalysisLine]
+                        if let cached = cachedLines, cached.fen == position.fen {
+                            lines = cached.lines
+                        } else {
+                            lines = try await evaluate(
+                                fen: position.fen, depth: depth
+                            )
+                        }
+                        cachedLines = nil
                         let bestLine = lines.first
                         let bestScore = bestLine?.scoreCp ?? 0
 
                         // Score the played move. If it's in the top-N
                         // we get it for free; otherwise one more eval
-                        // of the position after the move, negated.
+                        // of the position after the move, negated —
+                        // and that search is cached as the next ply's
+                        // before-move evaluation.
                         let playedScore: Int
                         if let match = lines.first(where: { $0.uci == playedUCI }) {
                             playedScore = match.scoreCp
@@ -215,6 +248,7 @@ actor GameAnalyzer {
                                 fen: positionAfter.fen, depth: depth
                             )
                             playedScore = -(oppLines.first?.scoreCp ?? 0)
+                            cachedLines = (positionAfter.fen, oppLines)
                         }
 
                         let cpLoss = max(0, min(1000, bestScore - playedScore))
@@ -242,7 +276,7 @@ actor GameAnalyzer {
                         )
 
                         let analysis = MoveAnalysis(
-                            id: ply,
+                            id: firstPlyIndex + ply,
                             san: move.uci,
                             playedUCI: playedUCI,
                             mover: mover,
@@ -317,7 +351,7 @@ actor GameAnalyzer {
         // 2 for the UI + system. M-class silicon comfortably hits 6+
         // here, which roughly halves analysis time vs the previous
         // 2–4 budget.
-        let coreCount = max(2, min(8, available - 2))
+        let coreCount = preferredCoreCount ?? max(2, min(8, available - 2))
         await engine.start(coreCount: coreCount, multipv: multiPV)
         // Default hash is 16 MB which thrashes the transposition table
         // at depth 20+ — 256 MB matches what chess.com / Lichess use

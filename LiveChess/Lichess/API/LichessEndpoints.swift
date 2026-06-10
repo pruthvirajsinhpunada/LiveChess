@@ -139,8 +139,15 @@ enum LichessFormBody {
     ) -> [String: String] {
         switch spec {
         case let .realTime(limitSeconds, incrementSeconds):
+            // Canonical formatting: integer minutes when whole
+            // ("10", not "10.0") — matches what Lichess's own clients
+            // send; decimals only for sub-minute controls.
+            let minutes = Double(limitSeconds) / 60.0
+            let timeValue = minutes == minutes.rounded()
+                ? String(Int(minutes))
+                : String(minutes)
             return [
-                "time": String(Double(limitSeconds) / 60.0),
+                "time": timeValue,
                 "increment": String(incrementSeconds),
             ]
         case let .correspondence(daysPerTurn):

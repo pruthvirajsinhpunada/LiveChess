@@ -174,11 +174,19 @@ actor LichessAPIClient {
         body["variant"] = "standard"
         request.httpBody = LichessFormBody.encoded(body)
 
+        #if DEBUG
+        let bodyString = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? "<empty>"
+        print("[Seek] POST \(request.url?.absoluteString ?? "?") body: \(bodyString)")
+        #endif
+
         let session = URLSession.lichessStreaming
         let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw LichessError.invalidResponse
         }
+        #if DEBUG
+        print("[Seek] HTTP \(http.statusCode)")
+        #endif
         switch http.statusCode {
         case 200..<300: break
         case 401: throw LichessError.tokenExpired
@@ -194,9 +202,19 @@ actor LichessAPIClient {
         // is closed by the server (game found) or by us (Task cancelled
         // → URLSession.AsyncBytes throws CancellationError → loop exits).
         do {
-            for try await _ in bytes.lines {
+            for try await line in bytes.lines {
                 if Task.isCancelled { break }
+                #if DEBUG
+                // Lichess sends keep-alive newlines; any NON-empty
+                // line on a seek stream is diagnostic gold (errors,
+                // pairing notices) — surface it.
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if !trimmed.isEmpty { print("[Seek] line: \(trimmed)") }
+                #endif
             }
+            #if DEBUG
+            print("[Seek] stream closed by server — expecting a paired game")
+            #endif
         } catch is CancellationError {
             return
         } catch {
@@ -277,6 +295,15 @@ actor LichessAPIClient {
     private func sendData(_ request: URLRequest) async throws -> (Data, URLResponse) {
         do {
             return try await urlSession.data(for: request)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            // Task cancellation (view navigated away mid-request)
+            // surfaces from URLSession as URLError(.cancelled). It is
+            // NOT a connectivity failure — wrapping it in `.network`
+            // made the lobby show a spurious "No connection to
+            // Lichess." every time a poll was cancelled by navigation.
+            throw CancellationError()
         } catch {
             throw LichessError.network(underlying: error)
         }

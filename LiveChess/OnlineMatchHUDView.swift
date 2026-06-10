@@ -372,10 +372,16 @@ struct OnlineMatchHUDView: View {
                 Button {
                     let moves = session.match.moves
                     let status = session.match.status
+                    // Live in-game analysis seeds the review — by the
+                    // time the game ends most plies are classified, so
+                    // the review opens (nearly) instantly.
+                    let seed = appModel.harvestLiveAnalysis(for: moves)
                     Task {
                         await session.disconnect()
                         appModel.activeSession = .review(
-                            ReviewSession(localMoves: moves, status: status)
+                            ReviewSession(localMoves: moves,
+                                          status: status,
+                                          precomputed: seed)
                         )
                         appModel.pendingReopen = true
                         appModel.immersiveSpaceState = .inTransition
@@ -396,15 +402,10 @@ struct OnlineMatchHUDView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
 
-                // Deeper engine analysis on lichess.org (opens Safari).
-                Button {
-                    openURL(session.analysisURL)
-                } label: {
-                    Label("Analyze on Lichess", systemImage: "safari")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
+                // (No "Analyze on Lichess" Safari hand-off — analysis
+                // lives entirely in the in-app 3-D review above; the
+                // user shouldn't leave the headset experience to
+                // study the game.)
 
                 // Online "new game" requires matchmaking, so the route to
                 // another game (and the way out) is back through the lobby.

@@ -1109,6 +1109,9 @@ struct ProfilePlaceholderView: View {
 /// not missing settings UI.
 struct SettingsPlaceholderView: View {
     @Environment(AppModel.self) private var appModel
+    /// Feeds the embedded Profile dashboard (Account section) — the
+    /// same data source the home Profile tab uses.
+    @Bindable var viewModel: HomeViewModel
 
     enum Section: String, CaseIterable, Identifiable {
         case account, gameplay, boardAndPieces, environment, legal, about
@@ -1147,8 +1150,6 @@ struct SettingsPlaceholderView: View {
 
     @State private var selection: Section = .account
     @State private var presentedLegal: LegalDocument?
-    @State private var settingsPreviewSide: Side = .white
-    @State private var settingsPreviewKind: PieceKind = .king
 
     var body: some View {
         @Bindable var appModel = appModel
@@ -1157,11 +1158,22 @@ struct SettingsPlaceholderView: View {
             sectionRail
                 .frame(width: 240)
 
-            ScrollView {
-                detailPane(appModel: appModel)
-                    .padding(.bottom, Chess.Space.xl)
+            // Account + Board & Pieces embed full screens (the new
+            // Profile dashboard and the Customize screen) that manage
+            // their own scrolling, so they sit directly in the
+            // column; the simpler panes share the outer ScrollView.
+            switch selection {
+            case .account:
+                accountScreen
+            case .boardAndPieces:
+                PieceCustomizationView(showsApplyButton: false)
+            default:
+                ScrollView {
+                    detailPane(appModel: appModel)
+                        .padding(.bottom, Chess.Space.xl)
+                }
+                .scrollIndicators(.hidden)
             }
-            .scrollIndicators(.hidden)
         }
         .padding(Chess.Space.l)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1169,6 +1181,30 @@ struct SettingsPlaceholderView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $presentedLegal) { doc in
             LegalDocumentSheet(document: doc)
+        }
+    }
+
+    /// The home tab's Profile dashboard, reused verbatim for the
+    /// Account section (sign-in gate included) — one profile surface
+    /// across the app instead of a second, poorer account card.
+    @ViewBuilder
+    private var accountScreen: some View {
+        LichessGate(
+            icon: "person.crop.circle.fill",
+            title: "Account",
+            signedOutMessage: "Sign in with Lichess to see your profile, ratings, and stats.",
+            accentColor: Chess.Palette.bronze
+        ) {
+            if let account = appModel.lichess.account {
+                ProfileDashboardView(account: account, viewModel: viewModel)
+            } else {
+                ComingSoonView(
+                    icon: "person.fill",
+                    title: "Account",
+                    description: "Loading your Lichess profile…",
+                    accentColor: Chess.Palette.bronze
+                )
+            }
         }
     }
 
@@ -1249,9 +1285,10 @@ struct SettingsPlaceholderView: View {
         VStack(alignment: .leading, spacing: Chess.Space.l) {
             paneHeader(selection)
             switch selection {
-            case .account:        accountPane
+            // .account / .boardAndPieces never reach here — the body
+            // routes them to the embedded full screens directly.
+            case .account, .boardAndPieces: EmptyView()
             case .gameplay:       gameplayPane(appModel: appModel)
-            case .boardAndPieces: boardAndPiecesPane
             case .environment:    environmentPane(appModel: appModel)
             case .legal:          legalPane
             case .about:          aboutPane
@@ -1283,93 +1320,6 @@ struct SettingsPlaceholderView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: Pane — Account
-
-    @ViewBuilder
-    private var accountPane: some View {
-        ChessCard(.standard) {
-            VStack(alignment: .leading, spacing: Chess.Space.m) {
-                if appModel.lichess.isSignedIn {
-                    HStack(spacing: Chess.Space.s) {
-                        Image(systemName: "person.crop.circle.badge.checkmark")
-                            .font(.title2.weight(.semibold))
-                            .foregroundStyle(Chess.Palette.bronze)
-                            .frame(width: 48, height: 48)
-                            .background(.thinMaterial, in: Circle())
-                            .overlay(
-                                Circle()
-                                    .strokeBorder(Chess.Palette.bronze.opacity(0.28), lineWidth: 0.75)
-                                    .allowsHitTesting(false)
-                            )
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(appModel.lichess.account?.username ?? "Signed in")
-                                .font(.title3.weight(.semibold))
-                            Text("Lichess connected")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        ChessChip("Online", icon: "checkmark.circle.fill", tint: Chess.Palette.bronze)
-                    }
-                    Divider().overlay(Chess.Palette.bronze.opacity(0.25))
-                    if let perfs = appModel.lichess.account?.perfs {
-                        let popular = ["rapid", "classical"]
-                            .compactMap { key -> (String, Int)? in
-                                guard let r = perfs[key]?.rating else { return nil }
-                                return (key.capitalized, r)
-                            }
-                        if !popular.isEmpty {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Ratings")
-                                    .font(Chess.Typography.eyebrow())
-                                    .foregroundStyle(.secondary)
-                                HStack(spacing: Chess.Space.s) {
-                                    ForEach(popular, id: \.0) { (label, rating) in
-                                        ratingTile(label: label, rating: rating)
-                                    }
-                                }
-                            }
-                            Divider().overlay(Chess.Palette.bronze.opacity(0.25))
-                        }
-                    }
-                    HStack {
-                        Spacer()
-                        Button("Sign out") {
-                            Task { await appModel.lichess.signOut() }
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: Chess.Space.s) {
-                        HStack(spacing: Chess.Space.s) {
-                            Image(systemName: "person.crop.circle.badge.questionmark")
-                                .font(.title2.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 48, height: 48)
-                                .background(.thinMaterial, in: Circle())
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Not signed in")
-                                    .font(.title3.weight(.semibold))
-                                Text("Connect Lichess for online play, ratings, and cloud-analysed game review.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        Button {
-                            Task { await appModel.lichess.signIn() }
-                        } label: {
-                            Label("Sign in with Lichess", systemImage: "person.crop.circle.badge.checkmark")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(Chess.Palette.bronze)
-                        .controlSize(.large)
-                    }
-                }
-            }
-        }
     }
 
     // MARK: Pane — Gameplay
@@ -1442,518 +1392,6 @@ struct SettingsPlaceholderView: View {
                         .foregroundStyle(.tertiary)
                 }
             }
-        }
-    }
-
-    // MARK: Pane — Board & Pieces
-
-    @ViewBuilder
-    private var boardAndPiecesPane: some View {
-        VStack(alignment: .leading, spacing: Chess.Space.m) {
-            // Header/controls stay in a glass card…
-            ChessCard(.standard) {
-                HStack(alignment: .top, spacing: Chess.Space.s) {
-                    Image(systemName: "paintbrush.fill")
-                        .font(.title2.weight(.semibold))
-                        .foregroundStyle(Chess.Palette.bronze)
-                        .frame(width: 48, height: 48)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: Chess.Radius.row, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Chess.Radius.row, style: .continuous)
-                                .strokeBorder(Chess.Palette.bronze.opacity(0.28), lineWidth: 0.75)
-                                .allowsHitTesting(false)
-                        )
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(appModel.pieceCustomization.current.preset.displayName)
-                            .font(.title3.weight(.semibold))
-                        Text("Compare the default set with the custom set before choosing.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    previewSelectorControls
-                }
-            }
-
-            // …but the live 3-D previews float OUTSIDE any material-
-            // backed card. A material background that tightly bounds a
-            // windowed RealityView is what makes visionOS draw the big
-            // floating glass platter; letting the pieces float on
-            // passthrough (like the Home hero king) removes it entirely.
-            HStack(alignment: .top, spacing: Chess.Space.l) {
-                comparisonPreviewTile(
-                    title: "Default",
-                    subtitle: PieceMaterial.default.preset.displayName,
-                    material: .default
-                )
-                comparisonPreviewTile(
-                    title: "Custom",
-                    subtitle: appModel.pieceCustomization.current.preset.displayName,
-                    material: appModel.pieceCustomization.current
-                )
-            }
-            .padding(.horizontal, Chess.Space.xs)
-
-            settingsSubcard(title: "Piece material", icon: "circle.grid.2x2.fill") {
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(minimum: 190), spacing: Chess.Space.s),
-                        GridItem(.flexible(minimum: 190), spacing: Chess.Space.s)
-                    ],
-                    spacing: Chess.Space.s
-                ) {
-                    ForEach(PieceMaterial.Preset.allCases) { preset in
-                        settingsPresetButton(preset)
-                    }
-                }
-
-                if appModel.pieceCustomization.current.preset == .wood {
-                    Divider().overlay(Chess.Palette.bronze.opacity(0.20))
-                    HStack(alignment: .top, spacing: Chess.Space.s) {
-                        woodPicker(
-                            title: "White pieces",
-                            selected: appModel.pieceCustomization.current.whitePieceWood,
-                            onPick: { appModel.pieceCustomization.current.whitePieceWood = $0 }
-                        )
-                        woodPicker(
-                            title: "Black pieces",
-                            selected: appModel.pieceCustomization.current.blackPieceWood,
-                            onPick: { appModel.pieceCustomization.current.blackPieceWood = $0 }
-                        )
-                    }
-                }
-            }
-
-            settingsSubcard(title: "Piece colours", icon: "eyedropper.full") {
-                HStack(alignment: .top, spacing: Chess.Space.s) {
-                    settingsColorPicker(
-                        title: "White pieces",
-                        binding: pieceColorBinding(\.whiteColor)
-                    )
-                    settingsColorPicker(
-                        title: "Black pieces",
-                        binding: pieceColorBinding(\.blackColor)
-                    )
-                }
-            }
-
-            settingsSubcard(title: "Board surface", icon: "checkerboard.rectangle") {
-                HStack(alignment: .top, spacing: Chess.Space.m) {
-                    BoardPreviewView(material: appModel.pieceCustomization.current)
-                        .frame(width: 170, height: 170)
-                        .padding(Chess.Space.s)
-                        .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: Chess.Radius.row, style: .continuous))
-
-                    VStack(alignment: .leading, spacing: Chess.Space.s) {
-                        boardSurfaceControls
-                        Divider().overlay(Chess.Palette.bronze.opacity(0.20))
-                        HStack(alignment: .top, spacing: Chess.Space.s) {
-                            settingsColorPicker(
-                                title: "Light squares",
-                                binding: pieceColorBinding(\.lightSquareColor)
-                            )
-                            settingsColorPicker(
-                                title: "Dark squares",
-                                binding: pieceColorBinding(\.darkSquareColor)
-                            )
-                            settingsColorPicker(
-                                title: "Frame",
-                                binding: pieceColorBinding(\.frameColor)
-                            )
-                        }
-                    }
-                }
-            }
-
-            HStack {
-                Spacer()
-                Button {
-                    appModel.pieceCustomization.resetToDefault()
-                } label: {
-                    Label("Reset to default", systemImage: "arrow.counterclockwise")
-                }
-                .buttonStyle(.bordered)
-            }
-        }
-    }
-
-    private var previewSelectorControls: some View {
-        VStack(alignment: .trailing, spacing: 8) {
-            HStack(spacing: 6) {
-                previewSideButton(.white)
-                previewSideButton(.black)
-            }
-            Menu {
-                ForEach(PieceKind.allCases, id: \.self) { kind in
-                    Button(pieceKindName(kind)) {
-                        settingsPreviewKind = kind
-                    }
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Text(pieceKindName(settingsPreviewKind))
-                        .font(.callout.weight(.semibold))
-                    Image(systemName: "chevron.down")
-                        .font(.caption.weight(.bold))
-                }
-                .foregroundStyle(.primary)
-                .padding(.horizontal, Chess.Space.s)
-                .frame(width: 230, height: 36)
-                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: Chess.Radius.chip, style: .continuous))
-            }
-        }
-    }
-
-    private func comparisonPreviewTile(title: String, subtitle: String, material: PieceMaterial) -> some View {
-        VStack(alignment: .leading, spacing: Chess.Space.s) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.callout.weight(.semibold))
-                    Text("\(subtitle) · \(pieceSideName(settingsPreviewSide))")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer()
-            }
-            // Live 3-D preview. No clip / material wrapper on the
-            // RealityView — that's what made visionOS draw the big
-            // floating glass platter. The piece floats directly on the
-            // tile surface, like the Home hero king.
-            PiecePreviewView(
-                material: material,
-                previewSide: $settingsPreviewSide,
-                previewKind: $settingsPreviewKind
-            )
-            .frame(maxWidth: .infinity)
-        }
-        .padding(Chess.Space.s)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // Intentionally NO material `.background` here — a frame-sized
-        // material backing directly behind the 3-D RealityView is what
-        // makes visionOS draw the oversized floating glass platter. The
-        // piece floats on passthrough, same as the borderless Home king.
-    }
-
-    private func previewSideButton(_ side: Side) -> some View {
-        let isSelected = settingsPreviewSide == side
-        let color: Color = {
-            switch side {
-            case .white:
-                return appModel.pieceCustomization.current.whiteColor.swiftUI
-            case .black:
-                return appModel.pieceCustomization.current.blackColor.swiftUI
-            }
-        }()
-
-        return Button {
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
-                settingsPreviewSide = side
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(color)
-                    .frame(width: 14, height: 14)
-                    .overlay(Circle().strokeBorder(.white.opacity(0.45), lineWidth: 0.5))
-                Text(pieceSideName(side))
-                    .font(.caption.weight(isSelected ? .semibold : .regular))
-                    .lineLimit(1)
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.caption2.weight(.bold))
-                }
-            }
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 10)
-            .frame(width: 112, height: 36)
-            .background(isSelected ? Chess.Palette.bronze.opacity(0.24) : .white.opacity(0.07), in: RoundedRectangle(cornerRadius: Chess.Radius.chip, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: Chess.Radius.chip, style: .continuous)
-                    .strokeBorder(isSelected ? Chess.Palette.bronze.opacity(0.55) : .white.opacity(0.09), lineWidth: isSelected ? 1 : 0.5)
-                    .allowsHitTesting(false)
-            )
-        }
-        .buttonStyle(.plain)
-        .hoverEffect(.lift)
-    }
-
-    private func settingsSubcard<Content: View>(
-        title: String,
-        icon: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        ChessCard(.standard) {
-            VStack(alignment: .leading, spacing: Chess.Space.s) {
-                HStack(spacing: Chess.Space.s) {
-                    Image(systemName: icon)
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(Chess.Palette.bronze)
-                        .frame(width: 34, height: 34)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: Chess.Radius.chip, style: .continuous))
-                    Text(title)
-                        .font(Chess.Typography.sectionTitle())
-                    Spacer()
-                }
-                content()
-            }
-        }
-    }
-
-    private func settingsPresetButton(_ preset: PieceMaterial.Preset) -> some View {
-        let current = appModel.pieceCustomization.current
-        let isSelected = current.preset == preset
-
-        return Button {
-            var next = current
-            let pair = preset.defaultPair
-            next.preset = preset
-            next.whiteColor = pair.white
-            next.blackColor = pair.black
-            appModel.pieceCustomization.current = next
-        } label: {
-            HStack(spacing: Chess.Space.s) {
-                presetSwatch(preset)
-                    .frame(width: 30, height: 30)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(preset.displayName)
-                        .font(.callout.weight(isSelected ? .semibold : .regular))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    Text(materialHint(for: preset))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(Chess.Palette.bronze)
-                }
-            }
-            .padding(Chess.Space.s)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? .white.opacity(0.095) : .white.opacity(0.035), in: RoundedRectangle(cornerRadius: Chess.Radius.row, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: Chess.Radius.row, style: .continuous)
-                    .strokeBorder(isSelected ? Chess.Palette.bronze.opacity(0.35) : .white.opacity(0.08), lineWidth: 0.5)
-                    .allowsHitTesting(false)
-            )
-        }
-        .buttonStyle(.plain)
-        .hoverEffect(.lift)
-    }
-
-    private func settingsColorPicker(title: String, binding: Binding<Color>) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(title)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            HStack(spacing: 8) {
-                ColorPicker("", selection: binding, supportsOpacity: false)
-                    .labelsHidden()
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(binding.wrappedValue)
-                    .frame(height: 30)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .strokeBorder(.white.opacity(0.25), lineWidth: 0.5)
-                            .allowsHitTesting(false)
-                    )
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(Chess.Space.s)
-        .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: Chess.Radius.row, style: .continuous))
-    }
-
-    private var boardSurfaceControls: some View {
-        VStack(alignment: .leading, spacing: Chess.Space.s) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Squares")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                boardMaterialPicker(
-                    selected: appModel.pieceCustomization.current.squareMaterial,
-                    onPick: { appModel.pieceCustomization.current.squareMaterial = $0 }
-                )
-                if appModel.pieceCustomization.current.squareMaterial == .wood {
-                    HStack(alignment: .top, spacing: Chess.Space.s) {
-                        woodPicker(
-                            title: "Light wood",
-                            selected: appModel.pieceCustomization.current.lightSquareWood,
-                            onPick: { appModel.pieceCustomization.current.lightSquareWood = $0 }
-                        )
-                        woodPicker(
-                            title: "Dark wood",
-                            selected: appModel.pieceCustomization.current.darkSquareWood,
-                            onPick: { appModel.pieceCustomization.current.darkSquareWood = $0 }
-                        )
-                    }
-                }
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Frame")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                boardMaterialPicker(
-                    selected: appModel.pieceCustomization.current.frameMaterial,
-                    onPick: { appModel.pieceCustomization.current.frameMaterial = $0 }
-                )
-                if appModel.pieceCustomization.current.frameMaterial == .wood {
-                    woodPicker(
-                        title: "Frame wood",
-                        selected: appModel.pieceCustomization.current.frameWood,
-                        onPick: { appModel.pieceCustomization.current.frameWood = $0 }
-                    )
-                }
-            }
-        }
-    }
-
-    private func boardMaterialPicker(
-        selected: BoardMaterial,
-        onPick: @escaping (BoardMaterial) -> Void
-    ) -> some View {
-        HStack(spacing: 6) {
-            ForEach(BoardMaterial.allCases) { material in
-                let isSelected = material == selected
-                Button {
-                    onPick(material)
-                } label: {
-                    HStack(spacing: 4) {
-                        if isSelected {
-                            Image(systemName: "checkmark")
-                                .font(.caption2.weight(.bold))
-                        }
-                        Text(material.displayName)
-                            .font(.caption.weight(isSelected ? .semibold : .regular))
-                            .lineLimit(1)
-                    }
-                    .padding(.vertical, 7)
-                    .padding(.horizontal, 10)
-                    .background(isSelected ? Chess.Palette.bronze.opacity(0.22) : .white.opacity(0.055), in: RoundedRectangle(cornerRadius: Chess.Radius.chip, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Chess.Radius.chip, style: .continuous)
-                            .strokeBorder(isSelected ? Chess.Palette.bronze.opacity(0.42) : .white.opacity(0.08), lineWidth: 0.5)
-                            .allowsHitTesting(false)
-                    )
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private func woodPicker(
-        title: String,
-        selected: WoodType,
-        onPick: @escaping (WoodType) -> Void
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.secondary)
-            HStack(spacing: 6) {
-                ForEach(WoodType.allCases) { wood in
-                    let isSelected = wood == selected
-                    Button {
-                        onPick(wood)
-                    } label: {
-                        Text(wood.displayName)
-                            .font(.caption2.weight(isSelected ? .semibold : .regular))
-                            .lineLimit(1)
-                            .padding(.vertical, 6)
-                            .padding(.horizontal, 9)
-                            .background(isSelected ? Chess.Palette.bronze.opacity(0.22) : .white.opacity(0.055), in: RoundedRectangle(cornerRadius: Chess.Radius.chip, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: Chess.Radius.chip, style: .continuous)
-                                    .strokeBorder(isSelected ? Chess.Palette.bronze.opacity(0.42) : .white.opacity(0.08), lineWidth: 0.5)
-                                    .allowsHitTesting(false)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    private func pieceColorBinding(_ keyPath: WritableKeyPath<PieceMaterial, PieceColor>) -> Binding<Color> {
-        Binding(
-            get: { appModel.pieceCustomization.current[keyPath: keyPath].swiftUI },
-            set: { appModel.pieceCustomization.current[keyPath: keyPath] = PieceColor($0) }
-        )
-    }
-
-    private func presetSwatch(_ preset: PieceMaterial.Preset) -> some View {
-        Circle()
-            .fill(presetFill(preset))
-            .overlay(Circle().strokeBorder(.white.opacity(0.30), lineWidth: 0.5))
-            .overlay(
-                Circle()
-                    .trim(from: 0.55, to: 0.86)
-                    .stroke(.white.opacity(0.45), lineWidth: 1.1)
-                    .padding(2)
-            )
-    }
-
-    private func presetFill(_ preset: PieceMaterial.Preset) -> AnyShapeStyle {
-        switch preset {
-        case .plasticMatte:
-            return AnyShapeStyle(Color(red: 0.92, green: 0.92, blue: 0.92))
-        case .plasticGlossy:
-            return AnyShapeStyle(LinearGradient(colors: [Color.white, Color(white: 0.78)], startPoint: .topLeading, endPoint: .bottomTrailing))
-        case .lacquered:
-            return AnyShapeStyle(LinearGradient(colors: [Color(red: 0.78, green: 0.16, blue: 0.18), Color(red: 0.45, green: 0.05, blue: 0.07)], startPoint: .topLeading, endPoint: .bottomTrailing))
-        case .polishedMetal:
-            return AnyShapeStyle(LinearGradient(colors: [Color(white: 0.95), Color(white: 0.55)], startPoint: .topLeading, endPoint: .bottomTrailing))
-        case .brushedMetal:
-            return AnyShapeStyle(Color(white: 0.70))
-        case .ceramic:
-            return AnyShapeStyle(LinearGradient(colors: [Color(red: 0.97, green: 0.96, blue: 0.93), Color(red: 0.85, green: 0.83, blue: 0.78)], startPoint: .top, endPoint: .bottom))
-        case .pearl:
-            return AnyShapeStyle(AngularGradient(colors: [.pink.opacity(0.6), .cyan.opacity(0.4), .white, .yellow.opacity(0.5), .pink.opacity(0.6)], center: .center))
-        case .glass:
-            return AnyShapeStyle(LinearGradient(colors: [Color.cyan.opacity(0.35), Color.blue.opacity(0.45)], startPoint: .topLeading, endPoint: .bottomTrailing))
-        case .wood:
-            return AnyShapeStyle(LinearGradient(colors: [Color(red: 0.55, green: 0.36, blue: 0.18), Color(red: 0.32, green: 0.18, blue: 0.08)], startPoint: .topLeading, endPoint: .bottomTrailing))
-        case .marble:
-            return AnyShapeStyle(LinearGradient(colors: [Color(white: 0.96), Color(white: 0.78)], startPoint: .top, endPoint: .bottom))
-        }
-    }
-
-    private func materialHint(for preset: PieceMaterial.Preset) -> String {
-        switch preset {
-        case .plasticMatte: return "Soft, low shine"
-        case .plasticGlossy: return "Classic glossy set"
-        case .lacquered: return "Deep polished finish"
-        case .polishedMetal: return "Bright reflective metal"
-        case .brushedMetal: return "Muted satin metal"
-        case .ceramic: return "Smooth porcelain look"
-        case .pearl: return "Subtle iridescent sheen"
-        case .glass: return "Transparent tinted glass"
-        case .wood: return "Natural textured wood"
-        case .marble: return "Stone with veining"
-        }
-    }
-
-    private func pieceKindName(_ kind: PieceKind) -> String {
-        switch kind {
-        case .pawn: return "Pawn"
-        case .knight: return "Knight"
-        case .bishop: return "Bishop"
-        case .rook: return "Rook"
-        case .queen: return "Queen"
-        case .king: return "King"
-        }
-    }
-
-    private func pieceSideName(_ side: Side) -> String {
-        switch side {
-        case .white: return "White"
-        case .black: return "Black"
         }
     }
 
@@ -2118,33 +1556,6 @@ struct SettingsPlaceholderView: View {
     }
 
     // MARK: Helpers
-
-    private func ratingTile(label: String, rating: Int) -> some View {
-        VStack(spacing: 4) {
-            Text("\(rating)")
-                .font(.system(.title3, design: .rounded).weight(.semibold))
-                .monospacedDigit()
-                .foregroundStyle(Chess.Palette.bronze)
-            Text(label)
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, Chess.Space.s)
-        .background(
-            LinearGradient(
-                colors: [.white.opacity(0.13), Chess.Palette.cream.opacity(0.08)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
-            in: RoundedRectangle(cornerRadius: Chess.Radius.row, style: .continuous)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Chess.Radius.row, style: .continuous)
-                .strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
-                .allowsHitTesting(false)
-        )
-    }
 
     private func settingsControlHeader(title: String, value: String, icon: String) -> some View {
         HStack(spacing: Chess.Space.s) {

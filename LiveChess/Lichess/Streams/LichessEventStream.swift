@@ -140,11 +140,20 @@ actor LichessEventStream {
 
         let (bytes, response) = try await urlSession.bytes(for: request)
         try validate(response: response)
+        #if DEBUG
+        print("[EventStream] connected (HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1))")
+        #endif
 
         for try await event in NDJSON.stream(from: bytes, as: LichessEvent.self) {
             if Task.isCancelled { return }
+            #if DEBUG
+            print("[EventStream] event: \(event)")
+            #endif
             continuation.yield(event)
         }
+        #if DEBUG
+        print("[EventStream] stream ended (server closed)")
+        #endif
     }
 
     private func validate(response: URLResponse) throws {

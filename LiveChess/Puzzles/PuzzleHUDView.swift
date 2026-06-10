@@ -240,6 +240,10 @@ struct PuzzleHUDView: View {
                             .buttonStyle(.bordered)
                             .frame(maxWidth: .infinity)
                         Button("Exit", role: .destructive) {
+                            // Lichess-faithful: abandoning a started
+                            // puzzle is a rated fail (see
+                            // `PuzzleSession.abandonIfSolving`).
+                            session.abandonIfSolving()
                             Task {
                                 appModel.activeSession = nil
                                 await dismissImmersiveSpace()
