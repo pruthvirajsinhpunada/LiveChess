@@ -103,8 +103,17 @@ class AppModel {
             switch activeSession {
             case .local(let coordinator):
                 startLiveAnalysis { coordinator.match.moves }
-            case .online(let session):
-                startLiveAnalysis { session.match.moves }
+            case .online:
+                // FAIR PLAY: never run the local engine on a LIVE online
+                // game. Computing Stockfish evaluations of an in-progress
+                // rated Lichess position — even if the eval bar / best-move
+                // arrow are never shown — is engine assistance: it violates
+                // Lichess ToS (account ban) and App Store fair-play rules.
+                // Online games are analyzed only AFTER they finish, via the
+                // post-game `.review` batch path. Tear the analyzer fully
+                // down so no Stockfish process is alive during online play.
+                liveAnalysis?.shutdown()
+                liveAnalysis = nil
             case .puzzle, .review, .none:
                 // Keep accumulated results (the review seeds from
                 // them via `harvestLiveAnalysis`) but stop polling a
